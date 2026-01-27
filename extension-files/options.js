@@ -1,5 +1,5 @@
 // Options page JavaScript
-const DASHBOARD_API = 'http://localhost:3000';
+const DASHBOARD_API = 'https://trackingdashboardextention.onrender.com';
 const API_KEY = 'connectez-api-key-for-extension-tracking-12345';
 
 document.addEventListener('DOMContentLoaded', async () => {

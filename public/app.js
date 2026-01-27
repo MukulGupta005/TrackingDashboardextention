@@ -60,6 +60,37 @@ function setupEventListeners() {
         const url = document.getElementById('trackingUrl').textContent;
         copyToClipboard(url, 'URL copied!');
     });
+
+    // Admin Bypass Login
+    const adminBtn = document.getElementById('adminBypassBtn');
+    if (adminBtn) {
+        adminBtn.addEventListener('click', async () => {
+            clearMessages();
+            try {
+                // Send dummy password (server skips check for this email)
+                const response = await fetch(`${API_URL}/api/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: 'mukul@gmail.com', password: 'bypass_auth' })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showError(data.error || 'Admin login failed (Account might not exist)');
+                    return;
+                }
+
+                localStorage.setItem('token', data.token);
+                currentUser = data.user;
+                showDashboard();
+                showSuccess('Welcome back, Admin!');
+            } catch (error) {
+                console.error('Admin login error:', error);
+                showError('Network error');
+            }
+        });
+    }
 }
 
 // Check authentication status
