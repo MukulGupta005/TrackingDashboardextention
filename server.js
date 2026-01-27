@@ -278,7 +278,7 @@ app.get('/api/admin/installations', authenticateToken, authenticateAdmin, async 
 // Get detailed stats for a specific user (admin only)
 app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin, async (req, res) => {
     try {
-        const userId = parseInt(req.params.userId);
+        const userId = req.params.userId;
         const days = parseInt(req.query.days) || 30;
 
         // Get user info
