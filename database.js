@@ -9,6 +9,7 @@ const supabase = createClient(
 // Initialize database (create tables if they don't exist)
 async function initializeDatabase() {
   console.log('Database initialization complete (using Supabase)');
+  await checkSchema();
   console.log('Make sure you have created the tables in Supabase Dashboard');
 }
 
@@ -99,18 +100,43 @@ const extensionQueries = {
   }
 };
 
+// Feature flags for schema adaptation
+let hasExtensionIdColumn = false;
+
+// Check schema capabilities on startup
+async function checkSchema() {
+  const { error } = await supabase
+    .from('installations')
+    .select('extension_id')
+    .limit(1);
+
+  if (!error) {
+    hasExtensionIdColumn = true;
+    console.log('Schema Check: extension_id column detected.');
+  } else {
+    console.warn('Schema Check: extension_id column MISSING. Running in compatibility mode.');
+  }
+}
+
 // Installation operations
 const installationQueries = {
   async create({ referralCode, userId, installId, extensionId = null, deviceFingerprint = null }) {
+    // Dynamically build insert object based on schema capabilities
+    const insertData = {
+      referral_code: referralCode,
+      user_id: userId,
+      install_id: installId,
+      device_fingerprint: deviceFingerprint
+    };
+
+    // Only add extension_id if the column exists
+    if (hasExtensionIdColumn && extensionId) {
+      insertData.extension_id = extensionId;
+    }
+
     const { data, error } = await supabase
       .from('installations')
-      .insert([{
-        referral_code: referralCode,
-        user_id: userId,
-        install_id: installId,
-        extension_id: extensionId,
-        device_fingerprint: deviceFingerprint
-      }])
+      .insert([insertData])
       .select()
       .single();
 

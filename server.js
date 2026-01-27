@@ -6,8 +6,11 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const crypto = require('crypto');
 
-const { initializeDatabase, userQueries, extensionQueries, installationQueries, getStatsByReferral, getStatsByExtension, supabase } = require('./database');
+const { supabase, userQueries, extensionQueries, installationQueries, getStatsByReferral, initializeDatabase } = require('./database');
 const { authenticateToken, authenticateApiKey, authenticateAdmin } = require('./middleware/auth');
+
+// Initialize DB Check
+initializeDatabase().catch(err => console.error('DB Init failed:', err));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
