@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>LinkedIn ConnectEz Settings</title>
+    <style>
+        body {
+            width: 400px;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h2 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+            margin-bottom: 16px;
+            font-family: monospace;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #667eea;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .status {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.5);
+        }
+
+        .status.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.5);
+        }
+
+        .info {
+            margin-top: 16px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .current-code {
+            font-family: monospace;
+            font-size: 16px;
+            letter-spacing: 2px;
+            color: #fbbf24;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>🎯 Dashboard Tracking</h2>
+
+        <div id="currentCode" style="display: none;">
+            <p style="margin-bottom: 8px;">Current Referral Code:</p>
+            <p class="current-code" id="codeDisplay">-</p>
+            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.2); margin: 16px 0;">
+        </div>
+
+        <label for="referralCode">Enter Your Dashboard Referral Code:</label>
+        <input type="text" id="referralCode" placeholder="AA4F33CC" maxlength="8" autocomplete="off">
+
+        <button id="saveBtn">Save & Track</button>
+
+        <div class="status" id="status"></div>
+
+        <div class="info">
+            <strong>ℹ️ How it works:</strong><br>
+            1. Get your code from the dashboard<br>
+            2. Paste it here<br>
+            3. All installations & Mellowtel opt-ins will be tracked!
+        </div>
+    </div>
+
+    <script src="settings.js"></script>
+</body>
+
+</html>

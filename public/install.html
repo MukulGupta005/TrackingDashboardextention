@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install LinkedIn ConnectEz</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #020617 0%, #0f172a 100%);
+            color: #f1f5f9;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 600px;
+            text-align: center;
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 1.5rem;
+            padding: 3rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #818cf8 0%, #10b981 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+        }
+
+        p {
+            color: #94a3b8;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 0.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 35px rgba(99, 102, 241, 0.5);
+        }
+
+        .loading {
+            display: none;
+            margin-top: 2rem;
+            color: #10b981;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(148, 163, 184, 0.1);
+            border-top-color: #10b981;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .feature {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 2rem;
+            text-align: left;
+        }
+
+        .feature h3 {
+            color: #10b981;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .feature li {
+            padding: 0.25rem 0;
+            color: #94a3b8;
+        }
+
+        .feature li:before {
+            content: "✓ ";
+            color: #10b981;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🚀 LinkedIn ConnectEz</h1>
+        <p>Automate your LinkedIn networking with AI-powered connections</p>
+
+        <a href="#" class="btn" id="installBtn">
+            Install Chrome Extension
+        </a>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Tracking installation... Redirecting to Chrome Web Store</p>
+        </div>
+
+        <div class="feature">
+            <h3>✨ Features</h3>
+            <ul>
+                <li>Auto-connect with LinkedIn members</li>
+                <li>Personalized connection messages</li>
+                <li>Smart targeting and filtering</li>
+                <li>Activity analytics and insights</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Get referral code from URL
+        const params = new URLSearchParams(window.location.search);
+        const referralCode = params.get('ref') || 'DIRECT';
+
+        document.getElementById('installBtn').addEventListener('click', async (e) => {
+            e.preventDefault();
+
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('installBtn').style.display = 'none';
+
+            try {
+                // Track the click/install intent
+                const response = await fetch('http://localhost:3000/api/track/install', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': 'connectez-api-key-for-extension-tracking-12345'
+                    },
+                    body: JSON.stringify({
+                        referralCode: referralCode
+                    })
+                });
+
+                if (response.ok) {
+                    console.log('✅ Installation tracked!');
+
+                    // Redirect to Chrome Web Store after 1 second
+                    setTimeout(() => {
+                        window.location.href = 'https://chromewebstore.google.com/detail/linkedin-connectez/geehepcpfpchnndngcihpkdcjcafhmii';
+                    }, 1000);
+                } else {
+                    // Redirect anyway even if tracking fails
+                    setTimeout(() => {
+                        window.location.href = 'https://chromewebstore.google.com/detail/linkedin-connectez/geehepcpfpchnndngcihpkdcjcafhmii';
+                    }, 1000);
+                }
+            } catch (error) {
+                console.error('Tracking error:', error);
+                // Redirect anyway
+                setTimeout(() => {
+                    window.location.href = 'https://chromewebstore.google.com/detail/linkedin-connectez/geehepcpfpchnndngcihpkdcjcafhmii';
+                }, 1000);
+            }
+        });
+    </script>
+</body>
+
+</html>

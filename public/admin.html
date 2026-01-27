@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - LinkedIn ConnectEz</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .admin-header {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            padding: 1rem 2rem;
+            margin: -2rem -2rem 2rem -2rem;
+            border-radius: 1rem 1rem 0 0;
+            text-align: center;
+        }
+
+        .admin-header h2 {
+            color: white;
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .admin-totals {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .admin-card {
+            background: rgba(30, 41, 59, 0.5);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .admin-card h3 {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .admin-card .value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #f1f5f9;
+        }
+
+        .users-table {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .users-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .users-table th {
+            background: rgba(15, 23, 42, 0.5);
+            padding: 1rem;
+            text-align: left;
+            color: #94a3b8;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .users-table td {
+            padding: 1rem;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+            color: #e2e8f0;
+        }
+
+        .users-table tr {
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .users-table tbody tr:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .code {
+            font-family: 'Courier New', monospace;
+            background: rgba(99, 102, 241, 0.2);
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            letter-spacing: 0.1em;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .badge-warning {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .refresh-btn {
+            margin-bottom: 1rem;
+            padding: 0.5rem 1rem;
+            background: rgba(99, 102, 241, 0.2);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: #818cf8;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(99, 102, 241, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 1rem;
+            color: #818cf8;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .modal.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .modal-content {
+            background: #1e293b;
+            border-radius: 16px;
+            width: 95%;
+            max-width: 1400px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal.active .modal-content {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            border-radius: 16px 16px 0 0;
+        }
+
+        .modal-header h2 {
+            color: white;
+            margin: 0;
+        }
+
+        .close-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: white;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .modal-body {
+            padding: 2rem;
+        }
+
+        .user-info-section,
+        .stats-section,
+        .graphs-section,
+        .recent-section {
+            margin-bottom: 2rem;
+        }
+
+        .user-info-section h3,
+        .stats-section h3,
+        .graphs-section h3,
+        .recent-section h3 {
+            color: #f1f5f9;
+            margin-bottom: 1rem;
+            font-size: 1.25rem;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .info-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        .info-item strong {
+            color: #94a3b8;
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .info-item span {
+            color: #f1f5f9;
+            font-size: 1.1rem;
+        }
+
+        .copy-btn {
+            background: rgba(99, 102, 241, 0.2);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: #818cf8;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-left: 0.5rem;
+            transition: all 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(99, 102, 241, 0.3);
+        }
+
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card-modal {
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.2) 0%, rgba(124, 58, 237, 0.2) 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
+        .stat-card-modal .stat-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #f1f5f9;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card-modal .stat-label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .date-range-selector {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .date-range-btn {
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .date-range-btn.active {
+            background: rgba(99, 102, 241, 0.3);
+            border-color: rgba(99, 102, 241, 0.5);
+            color: #818cf8;
+        }
+
+        .date-range-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chart-container h4 {
+            color: #94a3b8;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .recent-installs-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .recent-installs-table th,
+        .recent-installs-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .recent-installs-table th {
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+        }
+
+        .recent-installs-table td {
+            color: #e2e8f0;
+        }
+
+        .recent-installs-table tr:last-child td {
+            border-bottom: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="admin-header">
+            <h2>👨‍💼 Admin Dashboard - All Users Overview</h2>
+        </div>
+
+        <a href="/" class="back-link">← Back to My Dashboard</a>
+
+        <button class="refresh-btn" onclick="loadAdminData()">🔄 Refresh Data</button>
+
+        <div class="admin-totals">
+            <div class="admin-card">
+                <h3>Total Users</h3>
+                <div class="value" id="totalUsers">-</div>
+            </div>
+            <div class="admin-card">
+                <h3>Total Installations</h3>
+                <div class="value" id="totalInstalls">-</div>
+            </div>
+            <div class="admin-card">
+                <h3>Total Mellowtel Opt-ins</h3>
+                <div class="value" id="totalMellowtel">-</div>
+            </div>
+            <div class="admin-card">
+                <h3>Total Active Users</h3>
+                <div class="value" id="totalActive">-</div>
+            </div>
+            <div class="admin-card">
+                <h3>Inactive Installations</h3>
+                <div class="value" id="totalInactive">-</div>
+            </div>
+        </div>
+
+        <h3 style="color: #f1f5f9; margin-bottom: 1rem;">All Dashboard Users (Click to view details)</h3>
+
+        <div class="users-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>User Email</th>
+                        <th>Referral Code</th>
+                        <th>Installs</th>
+                        <th>Mellowtel</th>
+                        <th>Active (24h)</th>
+                        <th>Joined</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTable">
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: #94a3b8;">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- User Detail Modal -->
+    <div id="userDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📊 User Analytics</h2>
+                <button class="close-btn" onclick="closeUserDetail()">×</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- User Info -->
+                <div class="user-info-section">
+                    <h3>User Information</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>Email</strong>
+                            <span id="detailEmail"></span>
+                        </div>
+                        <div class="info-item">
+                            <strong>Referral Code</strong>
+                            <span id="detailRefCode" class="code"></span>
+                            <button class="copy-btn" onclick="copyRefCode()">📋 Copy</button>
+                        </div>
+                        <div class="info-item">
+                            <strong>Registered</strong>
+                            <span id="detailCreated"></span>
+                        </div>
+                        <div class="info-item">
+                            <strong>Admin Status</strong>
+                            <span id="detailAdmin"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Stats -->
+                <div class="stats-section">
+                    <h3>Current Statistics</h3>
+                    <div class="stats-cards">
+                        <div class="stat-card-modal">
+                            <div class="stat-value" id="detailInstalls">0</div>
+                            <div class="stat-label">Total Installations</div>
+                        </div>
+                        <div class="stat-card-modal">
+                            <div class="stat-value" id="detailMellowtel">0</div>
+                            <div class="stat-label">Mellowtel Opt-ins</div>
+                        </div>
+                        <div class="stat-card-modal">
+                            <div class="stat-value" id="detailActive">0</div>
+                            <div class="stat-label">Active Users (24h)</div>
+                        </div>
+                        <div class="stat-card-modal">
+                            <div class="stat-value" id="detailInactive">0</div>
+                            <div class="stat-label">Inactive Installations</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Graphs -->
+                <div class="graphs-section">
+                    <h3>Analytics Trends</h3>
+                    <div class="date-range-selector">
+                        <button class="date-range-btn" onclick="loadUserDetail(currentUserId, 7)">7 Days</button>
+                        <button class="date-range-btn active" onclick="loadUserDetail(currentUserId, 30)">30
+                            Days</button>
+                    </div>
+
+                    <div class="charts-grid">
+                        <div class="chart-container">
+                            <h4>Daily Installations</h4>
+                            <canvas id="installsChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h4>Active Users</h4>
+                            <canvas id="activeChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h4>Mellowtel Opt-ins</h4>
+                            <canvas id="mellowtelChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Installations -->
+                <div class="recent-section">
+                    <h3>Recent Installations (Last 20)</h3>
+                    <table class="recent-installs-table">
+                        <thead>
+                            <tr>
+                                <th>Install ID</th>
+                                <th>Installed At</th>
+                                <th>Status</th>
+                                <th>Mellowtel</th>
+                                <th>Last Active</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentInstallsBody">
+                            <tr>
+                                <td colspan="5" style="text-align: center; color: #94a3b8;">No data</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+        const token = localStorage.getItem('token');
+        let currentUserId = null;
+        let charts = {};
+
+        if (!token) {
+            window.location.href = '/';
+        }
+
+        async function loadAdminData() {
+            try {
+                const response = await fetch(`${API_URL}/admin/users`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401 || response.status === 403) {
+                        localStorage.removeItem('token');
+                        alert('Admin access required');
+                        window.location.href = '/';
+                        return;
+                    }
+                    throw new Error('Failed to load admin data');
+                }
+
+                const data = await response.json();
+
+                // Update totals
+                document.getElementById('totalUsers').textContent = data.totals.totalUsers;
+                document.getElementById('totalInstalls').textContent = data.totals.totalInstalls;
+                document.getElementById('totalMellowtel').textContent = data.totals.totalMellowtelOptIns;
+                document.getElementById('totalActive').textContent = data.totals.totalActiveUsers;
+                document.getElementById('totalInactive').textContent = data.totals.totalInactive || 0;
+
+                // Update users table
+                const tbody = document.getElementById('usersTable');
+
+                if (data.users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8;">No users found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.users.map(user => `
+          <tr onclick="showUserDetail(${user.id})">
+            <td>${user.email}</td>
+            <td><span class="code">${user.referralCode}</span></td>
+            <td>${user.totalInstalls}</td>
+            <td>
+              ${user.mellowtelOptIns > 0
+                        ? `<span class="badge badge-success">${user.mellowtelOptIns}</span>`
+                        : `<span class="badge badge-warning">0</span>`
+                    }
+            </td>
+            <td>${user.activeUsers}</td>
+            <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+          </tr>
+        `).join('');
+
+            } catch (error) {
+                console.error('Error loading admin data:', error);
+                document.getElementById('usersTable').innerHTML =
+                    '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Failed to load data</td></tr>';
+            }
+        }
+
+        async function showUserDetail(userId) {
+            currentUserId = userId;
+            document.getElementById('userDetailModal').classList.add('active');
+            await loadUserDetail(userId, 30);
+        }
+
+        function closeUserDetail() {
+            document.getElementById('userDetailModal').classList.remove('active');
+            // Destroy charts to prevent memory leaks
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+        }
+
+        async function loadUserDetail(userId, days = 30) {
+            try {
+                // Update active button
+                document.querySelectorAll('.date-range-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event?.target?.classList.add('active');
+
+                const response = await fetch(`${API_URL}/admin/users/${userId}/details?days=${days}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) throw new Error('Failed to load user details');
+
+                const data = await response.json();
+
+                // Update user info
+                document.getElementById('detailEmail').textContent = data.user.email;
+                document.getElementById('detailRefCode').textContent = data.user.referralCode;
+                document.getElementById('detailCreated').textContent = new Date(data.user.createdAt).toLocaleDateString();
+                document.getElementById('detailAdmin').textContent = data.user.isAdmin ? '✅ Yes' : '❌ No';
+
+                // Update stats
+                document.getElementById('detailInstalls').textContent = data.stats.totalInstalls || 0;
+                document.getElementById('detailMellowtel').textContent = data.stats.mellowtelOptIns || 0;
+                document.getElementById('detailActive').textContent = data.stats.activeUsers || 0;
+                // Sum of inactive + uninstalled
+                const totalInactive = (data.stats.inactiveInstalls || 0) + (data.stats.uninstalledInstalls || 0);
+                document.getElementById('detailInactive').textContent = totalInactive;
+
+                // Render charts
+                renderUserCharts(data.dailyStats);
+
+                // Render recent installations
+                renderRecentInstalls(data.recentInstallations);
+
+            } catch (error) {
+                console.error('Error loading user details:', error);
+                alert('Failed to load user details');
+            }
+        }
+
+        function renderUserCharts(dailyStats) {
+            const labels = dailyStats.map(d => {
+                const date = new Date(d.date);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+            const installs = dailyStats.map(d => d.installs);
+            const active = dailyStats.map(d => d.activeUsers);
+            const mellowtel = dailyStats.map(d => d.mellowtelOptIns);
+
+            // Destroy existing charts
+            Object.values(charts).forEach(chart => chart.destroy());
+
+            // Installs chart (bar)
+            charts.installs = new Chart(document.getElementById('installsChart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Daily Installations',
+                        data: installs,
+                        backgroundColor: 'rgba(79, 70, 229, 0.8)',
+                        borderColor: 'rgba(79, 70, 229, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        x: {
+                            ticks: { color: '#94a3b8' },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // Active users chart (line)
+            charts.active = new Chart(document.getElementById('activeChart'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Active Users',
+                        data: active,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        tension: 0.4,
+                        fill: true,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        x: {
+                            ticks: { color: '#94a3b8' },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // Mellowtel chart (line)
+            charts.mellowtel = new Chart(document.getElementById('mellowtelChart'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Mellowtel Opt-ins',
+                        data: mellowtel,
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                        tension: 0.4,
+                        fill: true,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        x: {
+                            ticks: { color: '#94a3b8' },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderRecentInstalls(installations) {
+            const tbody = document.getElementById('recentInstallsBody');
+
+            if (!installations || installations.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8;">No installations found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = installations.map(install => {
+                let statusBadge = '';
+                if (install.status === 'active') statusBadge = '<span class="badge badge-success">Active</span>';
+                else if (install.status === 'uninstalled') statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Uninstalled</span>';
+                else statusBadge = '<span class="badge badge-warning">Inactive</span>';
+
+                return `
+                <tr>
+                    <td><span class="code">${install.install_id.substring(0, 12)}...</span></td>
+                    <td>${new Date(install.installed_at).toLocaleString()}</td>
+                    <td>${statusBadge}</td>
+                    <td>${install.mellowtel_opted_in ? '✅ Yes' : '❌ No'}</td>
+                    <td>${new Date(install.last_active).toLocaleString()}</td>
+                </tr>
+            `}).join('');
+        }
+
+        function copyRefCode() {
+            const code = document.getElementById('detailRefCode').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+
+        // Close modal on background click
+        document.getElementById('userDetailModal').addEventListener('click', (e) => {
+            if (e.target.id === 'userDetailModal') {
+                closeUserDetail();
+            }
+        });
+
+        // Load on page load
+        loadAdminData();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadAdminData, 30000);
+    </script>
+</body>
+
+</html>
