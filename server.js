@@ -561,6 +561,22 @@ app.post('/api/track/install', authenticateApiKey, async (req, res) => {
     }
 });
 
+// Track Activity Heartbeat
+app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
+    try {
+        const { installId } = req.body;
+        if (!installId) {
+            return res.status(400).json({ error: 'Missing installId' });
+        }
+
+        await installationQueries.updateLastActive(installId);
+        res.json({ status: 'ok' });
+    } catch (error) {
+        console.error('Activity track error:', error);
+        res.status(500).json({ error: 'Failed to track activity' });
+    }
+});
+
 // Track Mellowtel opt-in
 app.post('/api/track/mellowtel', authenticateApiKey, async (req, res) => {
     try {
