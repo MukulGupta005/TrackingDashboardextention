@@ -212,6 +212,22 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
         // Get stats for each user
         const usersWithStats = await Promise.all(users.map(async (user) => {
             const stats = await getStatsByReferral(user.referral_code);
+
+            // Get total active minutes for this user
+            const { data: userInstalls } = await require('./database').supabase
+                .from('installations')
+                .select('total_active_minutes')
+                .eq('user_id', user.id); // Assuming stats are linked by user_id or referral code
+
+            // Alternative: Filter by referral code if user_id link is weak in stats (but user_id is foreign key)
+            // Using referral code is safest for existing logic
+            const { data: installsByRef } = await require('./database').supabase
+                .from('installations')
+                .select('total_active_minutes')
+                .eq('referral_code', user.referral_code);
+
+            const userTotalMinutes = (installsByRef || []).reduce((sum, inst) => sum + (inst.total_active_minutes || 0), 0);
+
             return {
                 id: user.id,
                 email: user.email,
@@ -219,7 +235,8 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                 createdAt: user.created_at,
                 totalInstalls: stats.totalInstalls,
                 mellowtelOptIns: stats.mellowtelOptIns,
-                activeUsers: stats.activeUsers
+                activeUsers: stats.activeUsers,
+                totalActiveMinutes: userTotalMinutes
             };
         }));
 
@@ -227,6 +244,7 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
         const totalInstalls = usersWithStats.reduce((sum, user) => sum + user.totalInstalls, 0);
         const totalMellowtelOptIns = usersWithStats.reduce((sum, user) => sum + user.mellowtelOptIns, 0);
         const totalActiveUsers = usersWithStats.reduce((sum, user) => sum + user.activeUsers, 0);
+        const grandTotalActiveMinutes = usersWithStats.reduce((sum, user) => sum + user.totalActiveMinutes, 0);
 
         // Fetch global inactive count efficiently
         const { count: totalInactive, error: inactiveError } = await require('./database').supabase
@@ -241,7 +259,8 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
             totalInstalls,
             totalMellowtelOptIns,
             totalActiveUsers,
-            totalInactive: totalInactive || 0
+            totalInactive: totalInactive || 0,
+            grandTotalActiveMinutes
         };
 
         res.json({
@@ -376,7 +395,7 @@ app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin
             dailyStats: Object.values(dailyStatsMap),
             recentInstallations: recentInstalls.map(install => ({
                 ...install,
-                isOnline: new Date(install.last_active) > new Date(Date.now() - 5 * 60 * 1000), // Active in last 5 mins
+                isOnline: new Date(install.last_active) > new Date(Date.now() - 10 * 60 * 1000), // Active in last 10 mins (safer buffer)
                 totalActiveMinutes: install.total_active_minutes || 0
             })) || []
         });

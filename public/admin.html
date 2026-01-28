@@ -411,6 +411,7 @@
             <div class="admin-card">
                 <h3>Total Active Users</h3>
                 <div class="value" id="totalActive">-</div>
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 5px;" id="grandTotalTime">0d 0h 0m</div>
             </div>
             <div class="admin-card">
                 <h3>Inactive Installations</h3>
@@ -429,6 +430,7 @@
                         <th>Installs</th>
                         <th>Mellowtel</th>
                         <th>Active (24h)</th>
+                        <th>Total Active Time</th>
                         <th>Joined</th>
                     </tr>
                 </thead>
@@ -583,6 +585,7 @@
                 document.getElementById('totalMellowtel').textContent = data.totals.totalMellowtelOptIns;
                 document.getElementById('totalActive').textContent = data.totals.totalActiveUsers;
                 document.getElementById('totalInactive').textContent = data.totals.totalInactive || 0;
+                document.getElementById('grandTotalTime').textContent = formatDuration(data.totals.grandTotalActiveMinutes || 0);
 
                 // Update users table
                 const tbody = document.getElementById('usersTable');
@@ -604,6 +607,7 @@
                     }
             </td>
             <td>${user.activeUsers}</td>
+            <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(user.totalActiveMinutes || 0)}</td>
             <td>${new Date(user.createdAt).toLocaleDateString()}</td>
           </tr>
         `).join('');
@@ -787,11 +791,12 @@
         }
 
         function formatDuration(minutes) {
-            if (!minutes) return '0m';
+            if (!minutes) return '00:00:00';
             const h = Math.floor(minutes / 60);
             const m = minutes % 60;
-            if (h > 0) return `${h}h ${m}m`;
-            return `${m}m`;
+            const hStr = h < 10 ? '0' + h : h;
+            const mStr = m < 10 ? '0' + m : m;
+            return `${hStr}:${mStr}:00`; // Seconds always 00 based on requested resolution
         }
 
         function renderRecentInstalls(installations) {
