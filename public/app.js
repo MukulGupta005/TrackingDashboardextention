@@ -299,6 +299,18 @@ function updateRecentInstalls(installs) {
             timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
         }
 
+        // Format timestamps
+        const formatTimestamp = (timestamp) => {
+            if (!timestamp) return 'N/A';
+            const d = new Date(timestamp);
+            return d.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        };
+
         return `
       <div class="install-item">
         <div class="install-info">
@@ -306,6 +318,10 @@ function updateRecentInstalls(installs) {
              Installation <span style="font-family: monospace; opacity: 0.7;">#${install.install_id.substring(0, 8)}</span>
           </div>
           <div class="install-date">📅 ${timeAgo}</div>
+          <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">
+            <div>▶️ Start: ${formatTimestamp(install.last_active_start)}</div>
+            <div>⏸️ Stop: ${formatTimestamp(install.last_active_stop)}</div>
+          </div>
         </div>
         <div style="display: flex; gap: var(--spacing-xs); align-items: center; flex-wrap: wrap;">
           ${install.mellowtel_opted_in ? '<span class="badge badge-success">✓ Mellowtel</span>' : '<span class="badge badge-warning">No Mellowtel</span>'}

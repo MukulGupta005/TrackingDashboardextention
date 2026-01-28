@@ -271,13 +271,32 @@ async function getStatsByReferral(referralCode) {
   const uninstalledResult = await installationQueries.countUninstalledByReferral(referralCode);
   const recentInstalls = await installationQueries.getRecentByReferral(referralCode, 10);
 
+  // Enrich installations with last session timestamps
+  const enrichedInstalls = await Promise.all(
+    (recentInstalls || []).map(async (install) => {
+      const { data: lastSession } = await supabase
+        .from('activity_sessions')
+        .select('start_time, last_heartbeat')
+        .eq('install_id', install.install_id)
+        .order('last_heartbeat', { ascending: false })
+        .limit(1)
+        .single();
+
+      return {
+        ...install,
+        last_active_start: lastSession?.start_time || null,
+        last_active_stop: lastSession?.last_heartbeat || null
+      };
+    })
+  );
+
   return {
     totalInstalls: totalInstallsResult.count || 0,
     mellowtelOptIns: mellowtelOptInsResult.count || 0,
     activeUsers: activeUsersResult.count || 0,
     inactiveInstalls: inactiveResult.count || 0,
     uninstalledInstalls: uninstalledResult.count || 0,
-    recentInstalls: recentInstalls || []
+    recentInstalls: enrichedInstalls
   };
 }
 

@@ -947,37 +947,34 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
 
                 if (timeDiff < GAP_THRESHOLD_MS) {
                     // CONTINUE SESSION
-                    // 1. Calculate actual elapsed time since last update (e.g. 2.1s or 3s)
-                    // This ensures the Total Active Time matches the Session Duration accurately
-                    const secondsSinceLast = Math.round(timeDiff / 1000); // 3000ms -> 3s
-
-                    // 2. Increment Total Active Seconds using this REAL value
-                    // (We do this here instead of the generic RPC call at the top)
-                    await supabase.rpc('increment_active_seconds', {
-                        row_id: installation.id,
-                        seconds: secondsSinceLast
-                    });
-
-                    // 3. Update Session Duration (now - start)
-                    const startTime = new Date(lastSession.start_time).getTime();
-                    const newDuration = Math.floor((now.getTime() - startTime) / 1000);
-
+                    // Just update the last_heartbeat timestamp
+                    // Duration will be calculated when session closes
                     await supabase
                         .from('activity_sessions')
                         .update({
-                            last_heartbeat: now.toISOString(),
-                            duration_seconds: newDuration
+                            last_heartbeat: now.toISOString()
                         })
                         .eq('id', lastSession.id);
                 } else {
-                    // START NEW SESSION
-                    // Increment using the payload value (usually 2s) for the first tick
-                    // because we have no "previous" time to diff against
+                    // SESSION ENDED - Calculate final duration
+                    const startTime = new Date(lastSession.start_time).getTime();
+                    const finalDuration = Math.floor((lastHeartbeatTime - startTime) / 1000);
+
+                    // Update the previous session with final duration
+                    await supabase
+                        .from('activity_sessions')
+                        .update({
+                            duration_seconds: finalDuration
+                        })
+                        .eq('id', lastSession.id);
+
+                    // Increment total active time by this session's duration
                     await supabase.rpc('increment_active_seconds', {
                         row_id: installation.id,
-                        seconds: activeSeconds || 2
+                        seconds: finalDuration
                     });
 
+                    // START NEW SESSION
                     await supabase.from('activity_sessions').insert([{
                         install_id: installId,
                         start_time: now.toISOString(),
@@ -987,11 +984,6 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                 }
             } else {
                 // FIRST SESSION EVER
-                await supabase.rpc('increment_active_seconds', {
-                    row_id: installation.id,
-                    seconds: activeSeconds || 2
-                });
-
                 await supabase.from('activity_sessions').insert([{
                     install_id: installId,
                     start_time: now.toISOString(),
