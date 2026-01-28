@@ -531,6 +531,7 @@
                                 <th>Install ID</th>
                                 <th>Installed At</th>
                                 <th>Status</th>
+                                <th>Active Time</th>
                                 <th>Mellowtel</th>
                                 <th>Last Active</th>
                             </tr>
@@ -785,29 +786,45 @@
             });
         }
 
+        function formatDuration(minutes) {
+            if (!minutes) return '0m';
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            if (h > 0) return `${h}h ${m}m`;
+            return `${m}m`;
+        }
+
         function renderRecentInstalls(installations) {
             const tbody = document.getElementById('recentInstallsBody');
 
             if (!installations || installations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8;">No installations found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8;">No installations found</td></tr>';
                 return;
             }
 
             tbody.innerHTML = installations.map(install => {
                 let statusBadge = '';
-                if (install.status === 'active') statusBadge = '<span class="badge badge-success">Active</span>';
-                else if (install.status === 'uninstalled') statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Uninstalled</span>';
-                else statusBadge = '<span class="badge badge-warning">Inactive</span>';
+
+                // Determine online status
+                if (install.status === 'uninstalled') {
+                    statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Uninstalled</span>';
+                } else if (install.isOnline) {
+                    statusBadge = '<span class="badge badge-success">● Online</span>';
+                } else {
+                    statusBadge = '<span class="badge badge-warning">○ Offline</span>';
+                }
 
                 return `
-                <tr>
-                    <td><span class="code">${install.install_id.substring(0, 12)}...</span></td>
-                    <td>${new Date(install.installed_at).toLocaleString()}</td>
-                    <td>${statusBadge}</td>
-                    <td>${install.mellowtel_opted_in ? '✅ Yes' : '❌ No'}</td>
-                    <td>${new Date(install.last_active).toLocaleString()}</td>
-                </tr>
-            `}).join('');
+                    <tr>
+                        <td><span class="code">${install.install_id.substring(0, 8)}...</span></td>
+                        <td>${new Date(install.installed_at).toLocaleDateString()}</td>
+                        <td>${statusBadge}</td>
+                        <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(install.totalActiveMinutes)}</td>
+                        <td>${install.mellowtel_opted_in ? '✅ Yes' : '❌ No'}</td>
+                        <td style="font-size: 0.8em; color: #94a3b8;">${new Date(install.last_active).toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         function copyRefCode() {

@@ -98,13 +98,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function trackInstallation(referralCode) {
         try {
+            const installId = crypto.randomUUID();
             const response = await fetch(`${DASHBOARD_API}/api/track/install`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-API-Key': API_KEY
                 },
-                body: JSON.stringify({ referralCode })
+                body: JSON.stringify({ referralCode, installId })
             });
 
             const data = await response.json();

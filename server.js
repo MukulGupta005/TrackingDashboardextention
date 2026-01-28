@@ -374,7 +374,11 @@ app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin
             },
             stats,
             dailyStats: Object.values(dailyStatsMap),
-            recentInstallations: recentInstalls || []
+            recentInstallations: recentInstalls.map(install => ({
+                ...install,
+                isOnline: new Date(install.last_active) > new Date(Date.now() - 5 * 60 * 1000), // Active in last 5 mins
+                totalActiveMinutes: install.total_active_minutes || 0
+            })) || []
         });
     } catch (error) {
         console.error('Error fetching user details:', error);
@@ -663,7 +667,7 @@ app.get('/api/track/uninstall', async (req, res) => {
 // Track user activity (heartbeat)
 app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
     try {
-        const { installId } = req.body;
+        const { installId, activeMinutes = 2 } = req.body;
 
         if (!installId) {
             return res.status(400).json({ error: 'Install ID required' });
@@ -675,21 +679,32 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
             return res.status(404).json({ error: 'Installation not found' });
         }
 
-        // Update last active time and set status to active
-        const { data, error } = await supabase
-            .from('installations')
-            .update({
-                last_active: new Date().toISOString(),
-                status: 'active'
-            })
-            .eq('install_id', installId);
+        // Update last active time and increment total active minutes
+        // We use a raw SQL query for atomic increment to avoid race conditions
+        const { error } = await supabase.rpc('increment_active_minutes', {
+            row_id: installation.id,
+            minutes: activeMinutes
+        });
 
-        if (error) throw error;
+        // Fallback if RPC doesn't exist (using normal update, less atomic but works for basic implementation)
+        if (error) {
+            // Check if it's just that the function doesn't exist
+            const { error: updateError } = await supabase
+                .from('installations')
+                .update({
+                    last_active: new Date().toISOString(),
+                    status: 'active',
+                    total_active_minutes: (installation.total_active_minutes || 0) + activeMinutes
+                })
+                .eq('install_id', installId);
+
+            if (updateError) throw updateError;
+        }
 
         // Notify SSE clients
         await notifyClients(installation.referral_code);
 
-        res.json({ message: 'Activity tracked' });
+        res.json({ message: 'Activity tracked', activeMinutes });
     } catch (error) {
         console.error('Activity tracking error:', error);
         res.status(500).json({ error: 'Failed to track activity' });
