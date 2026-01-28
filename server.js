@@ -912,6 +912,18 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
         }
 
         // ===============================================
+        // MELLOWTEL OPT-IN CHECK
+        // ===============================================
+        // Only track active time for users who have opted into Mellowtel
+        if (!installation.mellowtel_opted_in) {
+            // User hasn't opted in - acknowledge heartbeat but don't track time
+            return res.json({
+                message: 'Heartbeat received (Mellowtel opt-in required for activity tracking)',
+                mellowtelRequired: true
+            });
+        }
+
+        // ===============================================
         // SESSION TRACKING (Timestamp-Based Logic)
         // ===============================================
         try {
