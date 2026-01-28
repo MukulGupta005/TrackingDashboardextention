@@ -911,38 +911,70 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
             return res.status(404).json({ error: 'Installation not found' });
         }
 
-        if (lastSession) {
-            const lastHeartbeatTime = new Date(lastSession.last_heartbeat).getTime();
-            const timeDiff = now.getTime() - lastHeartbeatTime;
+        // ===============================================
+        // SESSION TRACKING (Timestamp-Based Logic)
+        // ===============================================
+        try {
+            const supabase = require('./database').supabase;
+            const now = new Date();
 
-            if (timeDiff < GAP_THRESHOLD_MS) {
-                // CONTINUE SESSION
-                // 1. Calculate actual elapsed time since last update (e.g. 2.1s or 3s)
-                // This ensures the Total Active Time matches the Session Duration accurately
-                const secondsSinceLast = Math.round(timeDiff / 1000); // 3000ms -> 3s
+            // 1. Get the most recent session for this install
+            const { data: lastSession } = await supabase
+                .from('activity_sessions')
+                .select('*')
+                .eq('install_id', installId)
+                .order('last_heartbeat', { ascending: false })
+                .limit(1)
+                .single();
 
-                // 2. Increment Total Active Seconds using this REAL value
-                // (We do this here instead of the generic RPC call at the top)
-                await supabase.rpc('increment_active_seconds', {
-                    row_id: installation.id,
-                    seconds: secondsSinceLast
-                });
+            const GAP_THRESHOLD_MS = 15 * 1000; // 15 seconds
 
-                // 3. Update Session Duration (now - start)
-                const startTime = new Date(lastSession.start_time).getTime();
-                const newDuration = Math.floor((now.getTime() - startTime) / 1000);
+            if (lastSession) {
+                const lastHeartbeatTime = new Date(lastSession.last_heartbeat).getTime();
+                const timeDiff = now.getTime() - lastHeartbeatTime;
 
-                await supabase
-                    .from('activity_sessions')
-                    .update({
+                if (timeDiff < GAP_THRESHOLD_MS) {
+                    // CONTINUE SESSION
+                    // 1. Calculate actual elapsed time since last update (e.g. 2.1s or 3s)
+                    // This ensures the Total Active Time matches the Session Duration accurately
+                    const secondsSinceLast = Math.round(timeDiff / 1000); // 3000ms -> 3s
+
+                    // 2. Increment Total Active Seconds using this REAL value
+                    // (We do this here instead of the generic RPC call at the top)
+                    await supabase.rpc('increment_active_seconds', {
+                        row_id: installation.id,
+                        seconds: secondsSinceLast
+                    });
+
+                    // 3. Update Session Duration (now - start)
+                    const startTime = new Date(lastSession.start_time).getTime();
+                    const newDuration = Math.floor((now.getTime() - startTime) / 1000);
+
+                    await supabase
+                        .from('activity_sessions')
+                        .update({
+                            last_heartbeat: now.toISOString(),
+                            duration_seconds: newDuration
+                        })
+                        .eq('id', lastSession.id);
+                } else {
+                    // START NEW SESSION
+                    // Increment using the payload value (usually 2s) for the first tick
+                    // because we have no "previous" time to diff against
+                    await supabase.rpc('increment_active_seconds', {
+                        row_id: installation.id,
+                        seconds: activeSeconds || 2
+                    });
+
+                    await supabase.from('activity_sessions').insert([{
+                        install_id: installId,
+                        start_time: now.toISOString(),
                         last_heartbeat: now.toISOString(),
-                        duration_seconds: newDuration
-                    })
-                    .eq('id', lastSession.id);
+                        duration_seconds: 0
+                    }]);
+                }
             } else {
-                // START NEW SESSION
-                // Increment using the payload value (usually 2s) for the first tick
-                // because we have no "previous" time to diff against
+                // FIRST SESSION EVER
                 await supabase.rpc('increment_active_seconds', {
                     row_id: installation.id,
                     seconds: activeSeconds || 2
@@ -955,35 +987,21 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                     duration_seconds: 0
                 }]);
             }
-        } else {
-            // FIRST SESSION EVER
-            await supabase.rpc('increment_active_seconds', {
-                row_id: installation.id,
-                seconds: activeSeconds || 2
-            });
-
-            await supabase.from('activity_sessions').insert([{
-                install_id: installId,
-                start_time: now.toISOString(),
-                last_heartbeat: now.toISOString(),
-                duration_seconds: 0
-            }]);
+        } catch (sessionError) {
+            console.error('Session tracking error:', sessionError);
         }
-    } catch (sessionError) {
-        console.error('Session tracking error:', sessionError);
+
+        // Removed the initial eager RPC call since we now handle it selectively inside session logic
+        // to avoid double counting or inaccurate fixed increments.
+        // But we need to handle the response.
+
+        await notifyClients(installation.referral_code);
+        res.json({ message: 'Activity tracked' });
+
+    } catch (error) {
+        console.error('Activity tracking error:', error);
+        res.status(500).json({ error: 'Failed to track activity' });
     }
-
-    // Removed the initial eager RPC call since we now handle it selectively inside session logic
-    // to avoid double counting or inaccurate fixed increments.
-    // But we need to handle the response.
-
-    await notifyClients(installation.referral_code);
-    res.json({ message: 'Activity tracked' });
-
-} catch (error) {
-    console.error('Activity tracking error:', error);
-    res.status(500).json({ error: 'Failed to track activity' });
-}
 });
 
 // Track uninstall (called when user uninstalls extension)
