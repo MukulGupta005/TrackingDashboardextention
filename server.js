@@ -166,6 +166,142 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
     }
 });
 
+// Get detailed stats for logged-in user (Graphs & History)
+app.get('/api/user/details', authenticateToken, async (req, res) => {
+    try {
+        const referralCode = req.user.referralCode;
+        const days = parseInt(req.query.days) || 30;
+
+        // 1. Get current stats
+        const stats = await getStatsByReferral(referralCode);
+
+        // 2. Get installations for date range (for graphs)
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+
+        const { data: installations, error: installError } = await require('./database').supabase
+            .from('installations')
+            .select('*')
+            .eq('referral_code', referralCode)
+            .gte('installed_at', cutoffDate.toISOString())
+            .order('installed_at', { ascending: true });
+
+        if (installError) throw installError;
+
+        // 3. Aggregate by day for graphs
+        const dailyStatsMap = {};
+        for (let i = 0; i < days; i++) {
+            const date = new Date();
+            date.setDate(date.getDate() - (days - 1 - i));
+            const dateStr = date.toISOString().split('T')[0];
+            dailyStatsMap[dateStr] = {
+                date: dateStr,
+                installs: 0,
+                activeUsers: 0,
+                mellowtelOptIns: 0
+            };
+        }
+
+        installations.forEach(install => {
+            const date = install.installed_at.split('T')[0];
+            if (dailyStatsMap[date]) {
+                dailyStatsMap[date].installs++;
+                if (install.mellowtel_opted_in) {
+                    dailyStatsMap[date].mellowtelOptIns++;
+                }
+            }
+        });
+
+        // 4. Count active users per day (Approximate based on activity sessions)
+        const { data: sessions } = await require('./database').supabase
+            .from('activity_sessions')
+            .select('start_time, install_id')
+            .in('install_id', installations.map(i => i.install_id))
+            .gte('start_time', cutoffDate.toISOString());
+
+        if (sessions) {
+            sessions.forEach(session => {
+                const dateStr = new Date(session.start_time).toISOString().split('T')[0];
+                if (dailyStatsMap[dateStr]) {
+                    if (!dailyStatsMap[dateStr].uniqueActive) dailyStatsMap[dateStr].uniqueActive = new Set();
+                    dailyStatsMap[dateStr].uniqueActive.add(session.install_id);
+                }
+            });
+            Object.values(dailyStatsMap).forEach(day => {
+                day.activeUsers = day.uniqueActive ? day.uniqueActive.size : 0;
+                delete day.uniqueActive;
+            });
+        }
+
+        // 5. Get recent installations (Detailed list)
+        const recentInstallations = [...installations].sort((a, b) => new Date(b.installed_at) - new Date(a.installed_at)).slice(0, 50).map(install => ({
+            ...install,
+            isOnline: new Date(install.last_active) > new Date(Date.now() - 30 * 1000),
+            totalActiveSeconds: install.active_seconds || (install.total_active_minutes * 60) || 0
+        }));
+
+        // 6. Get Session History (for the detailed modal)
+        // Similar to the admin history but specific strictly to this user
+        const { data: historySessions } = await require('./database').supabase
+            .from('activity_sessions')
+            .select('*')
+            .in('install_id', installations.map(i => i.install_id))
+            .order('start_time', { ascending: false })
+            .limit(100);
+
+        res.json({
+            stats,
+            dailyStats: Object.values(dailyStatsMap),
+            recentInstallations,
+            history: historySessions || []
+        });
+
+    } catch (error) {
+        console.error('User details error:', error);
+        res.status(500).json({ error: 'Failed to fetch user details' });
+    }
+});
+// Get detailed stats for a specific installation (History & Stats)
+app.get('/api/user/installation/:installId', authenticateToken, async (req, res) => {
+    try {
+        const referralCode = req.user.referralCode;
+        const installId = req.params.installId;
+
+        // 1. Verify this installation belongs to the user
+        const { data: installation, error: findError } = await require('./database').supabase
+            .from('installations')
+            .select('*')
+            .eq('install_id', installId)
+            .eq('referral_code', referralCode) // Security check
+            .single();
+
+        if (findError || !installation) {
+            return res.status(404).json({ error: 'Installation not found or access denied' });
+        }
+
+        // 2. Get Session History for this specific installation
+        const { data: historySessions } = await require('./database').supabase
+            .from('activity_sessions')
+            .select('*')
+            .eq('install_id', installId)
+            .order('start_time', { ascending: false })
+            .limit(100);
+
+        // 3. Calculate total stats
+        const totalActiveSeconds = installation.active_seconds || (installation.total_active_minutes * 60) || 0;
+
+        res.json({
+            installation, // Contains device info, status, etc.
+            totalActiveSeconds,
+            history: historySessions || []
+        });
+
+    } catch (error) {
+        console.error('Installation details error:', error);
+        res.status(500).json({ error: 'Failed to fetch installation details' });
+    }
+});
+
 // SSE endpoint for real-time updates
 app.get('/api/stream', authenticateToken, async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');

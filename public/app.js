@@ -60,6 +60,26 @@ function setupEventListeners() {
         const url = document.getElementById('trackingUrl').textContent;
         copyToClipboard(url, 'URL copied!');
     });
+
+    // Detailed Stats Modal
+    const statsModal = document.getElementById('statsModal');
+    const viewDetailsBtn = document.getElementById('viewDetailsBtn');
+    const closeStatsModal = document.getElementById('closeStatsModal');
+
+    viewDetailsBtn.addEventListener('click', loadUserDetails);
+    closeStatsModal.addEventListener('click', () => statsModal.style.display = 'none');
+    window.addEventListener('click', (e) => {
+        if (e.target === statsModal) statsModal.style.display = 'none';
+    });
+
+    // Event delegation for installation list clicks
+    document.getElementById('installList').addEventListener('click', (e) => {
+        const btn = e.target.closest('.view-install-btn');
+        if (btn) {
+            const installId = btn.dataset.id;
+            loadInstallationDetails(installId);
+        }
+    });
 }
 
 // Check authentication status
@@ -282,12 +302,17 @@ function updateRecentInstalls(installs) {
         return `
       <div class="install-item">
         <div class="install-info">
-          <div style="font-weight: 600;">Installation #${install.id}</div>
+          <div style="font-weight: 600;">
+             Installation <span style="font-family: monospace; opacity: 0.7;">#${install.install_id.substring(0, 8)}</span>
+          </div>
           <div class="install-date">📅 ${timeAgo}</div>
         </div>
-        <div style="display: flex; gap: var(--spacing-xs); flex-wrap: wrap;">
+        <div style="display: flex; gap: var(--spacing-xs); align-items: center; flex-wrap: wrap;">
           ${install.mellowtel_opted_in ? '<span class="badge badge-success">✓ Mellowtel</span>' : '<span class="badge badge-warning">No Mellowtel</span>'}
           ${isActive ? '<span class="badge badge-active">🔥 Active</span>' : ''}
+          <button class="btn btn-secondary view-install-btn" data-id="${install.install_id}" style="padding: 4px 8px; font-size: 0.8em; margin-left: 5px;">
+             👁️ View
+          </button>
         </div>
       </div>
     `;
@@ -352,4 +377,177 @@ async function copyToClipboard(text, successMsg) {
         console.error('Copy failed:', err);
         showError('Failed to copy. Please copy manually.');
     }
+}
+
+// Detailed Analytics Functions
+async function loadUserDetails() {
+    const modal = document.getElementById('statsModal');
+    const chartCanvas = document.getElementById('userStatsChart');
+    const historyBody = document.getElementById('userHistoryBody');
+
+    modal.style.display = 'block';
+
+    // Reset chart if exists
+    if (window.userStatsChart instanceof Chart) {
+        window.userStatsChart.destroy();
+    }
+    historyBody.innerHTML = '<tr><td colspan="3" style="text-align: center;">Loading...</td></tr>';
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/api/user/details?days=30`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.error) throw new Error(data.error);
+
+        renderUserChart(chartCanvas, data.dailyStats);
+        renderUserHistory(historyBody, data.history);
+
+    } catch (error) {
+        console.error('Details error:', error);
+        historyBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: red;">Failed to load data</td></tr>';
+    }
+}
+
+
+
+async function loadInstallationDetails(installId) {
+    const modal = document.getElementById('statsModal');
+    const chartCanvas = document.getElementById('userStatsChart');
+    const historyBody = document.getElementById('userHistoryBody');
+    const modalTitle = modal.querySelector('h2');
+
+    modal.style.display = 'block';
+    modalTitle.textContent = `📊 Installation Details (${installId.substring(0, 8)})`;
+
+    // Hide chart for single installation view (since we don't have daily stats for it yet)
+    // OR keep it processing? The backend doesn't return dailyStats for this endpoint.
+    // So let's hide the canvas container.
+    chartCanvas.parentElement.style.display = 'none';
+
+    historyBody.innerHTML = '<tr><td colspan="3" style="text-align: center;">Loading...</td></tr>';
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/api/user/installation/${installId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.error) throw new Error(data.error);
+
+        // Show summary row
+        historyBody.innerHTML = `
+            <tr style="background: rgba(59, 130, 246, 0.1); font-weight: bold;">
+                <td colspan="2">Total Active Time</td>
+                <td style="color: #3b82f6;">${formatDuration(data.totalActiveSeconds)}</td>
+            </tr>
+        `;
+
+        // Append history rows
+        if (data.history && data.history.length > 0) {
+            historyBody.innerHTML += data.history.map(session => `
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #1e293b;">${new Date(session.start_time).toLocaleString()}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #1e293b;">${new Date(session.last_heartbeat).toLocaleString()}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #1e293b; color: #a5b4fc; font-weight: bold;">
+                        ${formatDuration(session.duration_seconds)}
+                    </td>
+                </tr>
+            `).join('');
+        } else {
+            historyBody.innerHTML += '<tr><td colspan="3" style="text-align: center; padding: 20px; color: #64748b;">No detailed history found</td></tr>';
+        }
+
+    } catch (error) {
+        console.error('Details error:', error);
+        historyBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: red;">Failed to load data</td></tr>';
+    }
+}
+
+// Reset modal state when closing (to show chart again for main view)
+document.getElementById('closeStatsModal').addEventListener('click', () => {
+    document.getElementById('userStatsChart').parentElement.style.display = 'block';
+    document.querySelector('#statsModal h2').textContent = '📊 Your Detailed Analytics';
+});
+
+function renderUserChart(canvas, dailyStats) {
+    canvas.parentElement.style.display = 'block'; // Ensure it's visible
+    const ctx = canvas.getContext('2d');
+    const labels = dailyStats.map(d => new Date(d.date).toLocaleDateString());
+    const installs = dailyStats.map(d => d.installs);
+    const active = dailyStats.map(d => d.activeUsers);
+    const mellowtel = dailyStats.map(d => d.mellowtelOptIns);
+
+    window.userStatsChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'New Installs',
+                    data: installs,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    yAxisID: 'y',
+                    tension: 0.4,
+                    fill: true
+                },
+                {
+                    label: 'Mellowtel Opt-ins',
+                    data: mellowtel,
+                    borderColor: '#10b981',
+                    yAxisID: 'y',
+                    tension: 0.4
+                },
+                {
+                    label: 'Active Users',
+                    data: active,
+                    borderColor: '#f59e0b',
+                    yAxisID: 'y1',
+                    borderDash: [5, 5],
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } },
+                x: { grid: { display: false } }
+            },
+            plugins: {
+                legend: { position: 'top' }
+            }
+        }
+    });
+}
+
+function renderUserHistory(tbody, sessions) {
+    if (!sessions || sessions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: #64748b;">No activity history found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = sessions.map(session => `
+        <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #1e293b;">${new Date(session.start_time).toLocaleString()}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #1e293b;">${new Date(session.last_heartbeat).toLocaleString()}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #1e293b; color: #a5b4fc; font-weight: bold;">
+                ${formatDuration(session.duration_seconds)}
+            </td>
+        </tr>
+    `).join('');
+}
+
+function formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h}h ${m}m ${s}s`;
 }

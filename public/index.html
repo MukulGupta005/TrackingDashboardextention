@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
@@ -75,6 +76,8 @@
             <div style="font-weight: 600;" id="userEmail"></div>
             <button class="btn btn-secondary" id="logoutBtn"
               style="padding: 0.5rem 1rem; margin-top: 0.25rem;">Logout</button>
+            <button class="btn btn-primary" id="viewDetailsBtn"
+              style="padding: 0.5rem 1rem; margin-top: 0.25rem; font-size: 0.9em;">📊 Detailed Analytics</button>
           </div>
         </div>
       </div>
@@ -127,6 +130,43 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Detailed Stats Modal -->
+  <div id="statsModal" class="modal">
+    <div class="modal-content" style="max-width: 900px;">
+      <div class="modal-header">
+        <h2>📊 Your Detailed Analytics</h2>
+        <span class="close-modal" id="closeStatsModal">&times;</span>
+      </div>
+      <div class="modal-body">
+
+        <!-- Graphs Section -->
+        <h3 style="margin-top: 0;">Activity Trends (Last 30 Days)</h3>
+        <div style="height: 300px; margin-bottom: 2rem;">
+          <canvas id="userStatsChart"></canvas>
+        </div>
+
+        <!-- History Section -->
+        <h3>Recent Activity History</h3>
+        <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">Start Time</th>
+                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">End Time</th>
+                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">Duration</th>
+              </tr>
+            </thead>
+            <tbody id="userHistoryBody">
+              <!-- History rows will go here -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </div>
   </div>
 
   <script src="app.js"></script>
