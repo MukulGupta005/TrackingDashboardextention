@@ -77,6 +77,9 @@
         .users-table td {
             padding: 1rem;
             border-top: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .recent-installs-table td {
             color: #e2e8f0;
         }
 
@@ -377,15 +380,42 @@
 
         .recent-installs-table td {
             color: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            margin-left: 8px;
         }
 
-        .recent-installs-table tr:last-child td {
-            border-bottom: none;
+        .view-history-btn:hover {
+            background: rgba(79, 70, 229, 0.1);
         }
     </style>
 </head>
 
 <body>
+    <!-- History Modal -->
+    <div class="modal" id="historyModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Activity History</h2>
+                <button class="close-modal" onclick="closeHistoryModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="historyLoading" style="text-align: center; padding: 20px;">Loading...</div>
+                <table class="recent-installs-table" id="historyTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Start Time</th>
+                            <th>End Time (Approx)</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
     <div class="container">
         <div class="admin-header">
             <h2>👨‍💼 Admin Dashboard - All Users Overview</h2>
@@ -599,7 +629,10 @@
           <tr onclick="showUserDetail('${user.id}')">
             <td>${user.email}</td>
             <td><span class="code">${user.referralCode}</span></td>
-            <td>${user.totalInstalls}</td>
+            <td>
+                ${user.totalInstalls}
+                <button class="view-history-btn" onclick="showHistory('${user.referralCode}', event)">🕒 History</button>
+            </td>
             <td>
               ${user.mellowtelOptIns > 0
                         ? `<span class="badge badge-success">${user.mellowtelOptIns}</span>`
@@ -820,6 +853,55 @@
                 }
             });
         }
+
+        // History Modal Functions
+        async function showHistory(referralCode, event) {
+            event.stopPropagation(); // Prevent row click
+
+            const modal = document.getElementById('historyModal');
+            const tbody = document.getElementById('historyBody');
+            const loading = document.getElementById('historyLoading');
+            const table = document.getElementById('historyTable');
+
+            modal.classList.add('active');
+            loading.style.display = 'block';
+            table.style.display = 'none';
+            tbody.innerHTML = '';
+
+            try {
+                const response = await fetch(`${API_URL}/admin/history/${referralCode}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+
+                if (data.sessions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #94a3b8;">No history found</td></tr>';
+                } else {
+                    tbody.innerHTML = data.sessions.map(session => `
+                        <tr>
+                            <td>${new Date(session.start_time).toLocaleString()}</td>
+                            <td>${new Date(session.last_heartbeat).toLocaleString()}</td>
+                            <td style="color: #a5b4fc; font-weight: bold;">${formatDuration(session.duration_seconds)}</td>
+                        </tr>
+                    `).join('');
+                }
+
+                loading.style.display = 'none';
+                table.style.display = 'table';
+            } catch (error) {
+                console.error('History load error:', error);
+                loading.textContent = 'Failed to load history';
+            }
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('historyModal').classList.remove('active');
+        }
+
+        // Close on background click
+        document.getElementById('historyModal').addEventListener('click', (e) => {
+            if (e.target.id === 'historyModal') closeHistoryModal();
+        });
 
         // Input is now in SECONDS
         function formatDuration(seconds) {

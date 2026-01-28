@@ -450,6 +450,40 @@ app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin
 
 
 
+// Get user activity history
+app.get('/api/admin/history/:referralCode', authenticateToken, authenticateAdmin, async (req, res) => {
+    try {
+        const { referralCode } = req.params;
+
+        // Get all installations for this user first
+        const { data: installs } = await require('./database').supabase
+            .from('installations')
+            .select('install_id')
+            .eq('referral_code', referralCode);
+
+        if (!installs || installs.length === 0) {
+            return res.json({ sessions: [] });
+        }
+
+        const installIds = installs.map(i => i.install_id);
+
+        // Fetch sessions
+        const { data: sessions, error } = await require('./database').supabase
+            .from('activity_sessions')
+            .select('*')
+            .in('install_id', installIds)
+            .order('start_time', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+
+        res.json({ sessions: sessions || [] });
+    } catch (error) {
+        console.error('History fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch history' });
+    }
+});
+
 // ============================================
 // EXTENSION MANAGEMENT ROUTES
 // ============================================
@@ -763,9 +797,63 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                     total_active_minutes: Math.floor(((installation.active_seconds || 0) + secondsToAdd) / 60)
                 })
                 .eq('install_id', installId);
-
-            if (updateError) throw updateError;
         }
+
+        // ===============================================
+        // SESSION TRACKING (New Logic)
+        // ===============================================
+        try {
+            const supabase = require('./database').supabase;
+            const now = new Date();
+
+            // 1. Get the most recent session for this install
+            const { data: lastSession } = await supabase
+                .from('activity_sessions')
+                .select('*')
+                .eq('install_id', installId)
+                .order('last_heartbeat', { ascending: false })
+                .limit(1)
+                .single();
+
+            const GAP_THRESHOLD_MS = 15 * 1000; // 15 seconds (Heartbeat 3s + buffer)
+
+            if (lastSession) {
+                const lastHeartbeatTime = new Date(lastSession.last_heartbeat).getTime();
+                const timeDiff = now.getTime() - lastHeartbeatTime;
+
+                if (timeDiff < GAP_THRESHOLD_MS) {
+                    // CONTINUE SESSION
+                    await supabase
+                        .from('activity_sessions')
+                        .update({
+                            last_heartbeat: now.toISOString(),
+                            duration_seconds: lastSession.duration_seconds + (activeSeconds || 3)
+                        })
+                        .eq('id', lastSession.id);
+                } else {
+                    // START NEW SESSION (Gap too large)
+                    await supabase.from('activity_sessions').insert([{
+                        install_id: installId,
+                        start_time: now.toISOString(),
+                        last_heartbeat: now.toISOString(),
+                        duration_seconds: 0
+                    }]);
+                }
+            } else {
+                // FIRST EVER SESSION
+                await supabase.from('activity_sessions').insert([{
+                    install_id: installId,
+                    start_time: now.toISOString(),
+                    last_heartbeat: now.toISOString(),
+                    duration_seconds: 0
+                }]);
+            }
+        } catch (sessionError) {
+            console.error('Session tracking error:', sessionError);
+        }
+
+
+
 
         // Notify SSE clients
         await notifyClients(installation.referral_code);
