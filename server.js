@@ -209,21 +209,75 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
 
         if (error) throw error;
 
-        // Get stats for each user
-        const usersWithStats = await Promise.all(users.map(async (user) => {
-            const stats = await getStatsByReferral(user.referral_code);
+        // Get ALL installations in one go for bulk aggregation
+        // This solves the N+1 problem where we were querying for each user separately
+        const { data: allInstalls, error: installsError } = await require('./database').supabase
+            .from('installations')
+            .select('referral_code, status, mellowtel_opted_in, active_seconds, total_active_minutes, last_active, installed_at');
 
-            // Get total active seconds for this user
-            const { data: installsByRef } = await require('./database').supabase
-                .from('installations')
-                .select('active_seconds, total_active_minutes')
-                .eq('referral_code', user.referral_code);
+        if (installsError) throw installsError;
 
-            // Sum seconds, falling back to minutes*60 if seconds is 0/null
-            const userTotalSeconds = (installsByRef || []).reduce((sum, inst) => {
+        // Aggregate stats in memory
+        const statsByRef = {}; // { referralCode: { totalInstalls: 0, activeUsers: 0, mellowtelOptIns: 0, totalActiveSeconds: 0 } }
+        let grandTotalActiveSeconds = 0;
+        let totalInactive = 0;
+
+        // Initialize map for all users to ensure 0s for those with no installs
+        users.forEach(u => {
+            if (u.referral_code) {
+                statsByRef[u.referral_code] = {
+                    totalInstalls: 0,
+                    activeUsers: 0,
+                    mellowtelOptIns: 0,
+                    totalActiveSeconds: 0
+                };
+            }
+        });
+
+        // Process all installations once
+        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000);
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        (allInstalls || []).forEach(inst => {
+            // Count global inactive
+            if (inst.status === 'inactive' || inst.status === 'uninstalled') {
+                totalInactive++;
+            }
+
+            // Aggregate per referral code
+            const ref = inst.referral_code;
+            if (ref && statsByRef[ref]) {
+                const stats = statsByRef[ref];
+
+                stats.totalInstalls++;
+
+                if (inst.mellowtel_opted_in) {
+                    stats.mellowtelOptIns++;
+                }
+
+                // Check active status (Active in last 24h)
+                const lastActive = inst.last_active ? new Date(inst.last_active) : null;
+                const matchesStatus = inst.status === 'active' || inst.status === null;
+                const inTimeWindow = lastActive && lastActive >= twentyFourHoursAgo;
+
+                if (matchesStatus && inTimeWindow) {
+                    stats.activeUsers++;
+                }
+
                 const seconds = inst.active_seconds || (inst.total_active_minutes * 60) || 0;
-                return sum + seconds;
-            }, 0);
+                stats.totalActiveSeconds += seconds;
+                grandTotalActiveSeconds += seconds;
+            }
+        });
+
+        // Map users to their aggregated stats
+        const usersWithStats = users.map(user => {
+            const stats = statsByRef[user.referral_code] || {
+                totalInstalls: 0,
+                activeUsers: 0,
+                mellowtelOptIns: 0,
+                totalActiveSeconds: 0
+            };
 
             return {
                 id: user.id,
@@ -233,30 +287,21 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                 totalInstalls: stats.totalInstalls,
                 mellowtelOptIns: stats.mellowtelOptIns,
                 activeUsers: stats.activeUsers,
-                totalActiveSeconds: userTotalSeconds // Send seconds to frontend
+                totalActiveSeconds: stats.totalActiveSeconds
             };
-        }));
+        });
 
-        // Calculate totals
+        // Calculate global totals from the aggregated data
         const totalInstalls = usersWithStats.reduce((sum, user) => sum + user.totalInstalls, 0);
         const totalMellowtelOptIns = usersWithStats.reduce((sum, user) => sum + user.mellowtelOptIns, 0);
         const totalActiveUsers = usersWithStats.reduce((sum, user) => sum + user.activeUsers, 0);
-        const grandTotalActiveSeconds = usersWithStats.reduce((sum, user) => sum + user.totalActiveSeconds, 0);
-
-        // Fetch global inactive count efficiently
-        const { count: totalInactive, error: inactiveError } = await require('./database').supabase
-            .from('installations')
-            .select('*', { count: 'exact', head: true })
-            .in('status', ['inactive', 'uninstalled']); // Count both inactive and uninstalled as "inactive" for overview
-
-        if (inactiveError) console.error('Error fetching inactive count:', inactiveError);
 
         const totals = {
             totalUsers: users.length,
             totalInstalls,
             totalMellowtelOptIns,
             totalActiveUsers,
-            totalInactive: totalInactive || 0,
+            totalInactive,
             grandTotalActiveSeconds
         };
 
@@ -392,7 +437,8 @@ app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin
             dailyStats: Object.values(dailyStatsMap),
             recentInstallations: recentInstalls.map(install => ({
                 ...install,
-                isOnline: new Date(install.last_active) > new Date(Date.now() - 10 * 60 * 1000), // Active in last 10 mins (safer buffer)
+                // Active in last 8 seconds (Allows ~2 missed heartbeats)
+                isOnline: new Date(install.last_active) > new Date(Date.now() - 8 * 1000),
                 totalActiveSeconds: install.active_seconds || (install.total_active_minutes * 60) || 0
             })) || []
         });
