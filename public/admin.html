@@ -585,7 +585,7 @@
                 document.getElementById('totalMellowtel').textContent = data.totals.totalMellowtelOptIns;
                 document.getElementById('totalActive').textContent = data.totals.totalActiveUsers;
                 document.getElementById('totalInactive').textContent = data.totals.totalInactive || 0;
-                document.getElementById('grandTotalTime').textContent = formatDuration(data.totals.grandTotalActiveMinutes || 0);
+                document.getElementById('grandTotalTime').textContent = formatDuration(data.totals.grandTotalActiveSeconds || 0);
 
                 // Update users table
                 const tbody = document.getElementById('usersTable');
@@ -607,7 +607,7 @@
                     }
             </td>
             <td>${user.activeUsers}</td>
-            <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(user.totalActiveMinutes || 0)}</td>
+            <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(user.totalActiveSeconds || 0)}</td>
             <td>${new Date(user.createdAt).toLocaleDateString()}</td>
           </tr>
         `).join('');
@@ -619,8 +619,11 @@
             }
         }
 
+        let currentDays = 30; // Default
+
         async function showUserDetail(userId) {
             currentUserId = userId;
+            currentDays = 30; // Reset to default
             document.getElementById('userDetailModal').classList.add('active');
             await loadUserDetail(userId, 30);
         }
@@ -633,12 +636,20 @@
         }
 
         async function loadUserDetail(userId, days = 30) {
+            currentDays = days; // Track current range
             try {
                 // Update active button
                 document.querySelectorAll('.date-range-btn').forEach(btn => {
                     btn.classList.remove('active');
+                    // Simple check based on onclick attribute or text to highlight correct one
+                    if (btn.textContent.includes(days + ' Days')) btn.classList.add('active');
                 });
-                event?.target?.classList.add('active');
+
+                // If triggered by click, event might be defined
+                if (event && event.type === 'click') {
+                    document.querySelectorAll('.date-range-btn').forEach(b => b.classList.remove('active'));
+                    event.target.classList.add('active');
+                }
 
                 const response = await fetch(`${API_URL}/admin/users/${userId}/details?days=${days}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
@@ -662,7 +673,9 @@
                 const totalInactive = (data.stats.inactiveInstalls || 0) + (data.stats.uninstalledInstalls || 0);
                 document.getElementById('detailInactive').textContent = totalInactive;
 
-                // Render charts
+                // Render charts (only if not an auto-refresh, or update carefully? For now just redraw)
+                // To avoid flicker, maybe we can skip chart update if it's an auto-refresh?
+                // But data might change. Chart.js usually handles updates well.
                 renderUserCharts(data.dailyStats);
 
                 // Render recent installations
@@ -670,193 +683,201 @@
 
             } catch (error) {
                 console.error('Error loading user details:', error);
-                alert('Failed to load user details');
+                // Don't alert on auto-refresh errors to avoid spam
             }
         }
 
-        function renderUserCharts(dailyStats) {
-            const labels = dailyStats.map(d => {
-                const date = new Date(d.date);
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            });
-            const installs = dailyStats.map(d => d.installs);
-            const active = dailyStats.map(d => d.activeUsers);
-            const mellowtel = dailyStats.map(d => d.mellowtelOptIns);
+        // ... (Charts functions) ...
 
-            // Destroy existing charts
-            Object.values(charts).forEach(chart => chart.destroy());
+        // Initial load
+        fetchUsers();
 
-            // Installs chart (bar)
-            charts.installs = new Chart(document.getElementById('installsChart'), {
-                type: 'bar',
-                data: {
-                    labels,
-                    datasets: [{
-                        label: 'Daily Installations',
-                        data: installs,
-                        backgroundColor: 'rgba(79, 70, 229, 0.8)',
-                        borderColor: 'rgba(79, 70, 229, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: { color: '#94a3b8' },
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
-                        },
-                        x: {
-                            ticks: { color: '#94a3b8' },
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
+        // Refresh main list every 5 seconds
+        setInterval(fetchUsers, 5000);
 
-            // Active users chart (line)
-            charts.active = new Chart(document.getElementById('activeChart'), {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [{
-                        label: 'Active Users',
-                        data: active,
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                        tension: 0.4,
-                        fill: true,
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: { color: '#94a3b8' },
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
-                        },
-                        x: {
-                            ticks: { color: '#94a3b8' },
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-
-            // Mellowtel chart (line)
-            charts.mellowtel = new Chart(document.getElementById('mellowtelChart'), {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [{
-                        label: 'Mellowtel Opt-ins',
-                        data: mellowtel,
-                        borderColor: '#f59e0b',
-                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                        tension: 0.4,
-                        fill: true,
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: { color: '#94a3b8' },
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
-                        },
-                        x: {
-                            ticks: { color: '#94a3b8' },
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        }
-
-        function formatDuration(minutes) {
-            if (!minutes) return '00:00:00';
-            const h = Math.floor(minutes / 60);
-            const m = minutes % 60;
-            const hStr = h < 10 ? '0' + h : h;
-            const mStr = m < 10 ? '0' + m : m;
-            return `${hStr}:${mStr}:00`; // Seconds always 00 based on requested resolution
-        }
-
-        function renderRecentInstalls(installations) {
-            const tbody = document.getElementById('recentInstallsBody');
-
-            if (!installations || installations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8;">No installations found</td></tr>';
-                return;
+        // Refresh user details if modal is open (every 3 seconds)
+        setInterval(() => {
+            const modal = document.getElementById('userDetailModal');
+            if (modal.classList.contains('active') && currentUserId) {
+                // Pass false to a hypothetical 'isAutoRefresh' param if we wanted to suppress charts
+                loadUserDetail(currentUserId, currentDays);
             }
+        }, 3000);
+    </script>
 
-            tbody.innerHTML = installations.map(install => {
-                let statusBadge = '';
+    function renderUserCharts(dailyStats) {
+    const labels = dailyStats.map(d => {
+    const date = new Date(d.date);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const installs = dailyStats.map(d => d.installs);
+    const active = dailyStats.map(d => d.activeUsers);
+    const mellowtel = dailyStats.map(d => d.mellowtelOptIns);
 
-                // Determine online status
-                if (install.status === 'uninstalled') {
-                    statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Uninstalled</span>';
-                } else if (install.isOnline) {
-                    statusBadge = '<span class="badge badge-success">● Online</span>';
-                } else {
-                    statusBadge = '<span class="badge badge-warning">○ Offline</span>';
-                }
+    // Destroy existing charts
+    Object.values(charts).forEach(chart => chart.destroy());
 
-                return `
-                    <tr>
-                        <td><span class="code">${install.install_id.substring(0, 8)}...</span></td>
-                        <td>${new Date(install.installed_at).toLocaleDateString()}</td>
-                        <td>${statusBadge}</td>
-                        <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(install.totalActiveMinutes)}</td>
-                        <td>${install.mellowtel_opted_in ? '✅ Yes' : '❌ No'}</td>
-                        <td style="font-size: 0.8em; color: #94a3b8;">${new Date(install.last_active).toLocaleString()}</td>
-                    </tr>
-                `;
-            }).join('');
+    // Installs chart (bar)
+    charts.installs = new Chart(document.getElementById('installsChart'), {
+    type: 'bar',
+    data: {
+    labels,
+    datasets: [{
+    label: 'Daily Installations',
+    data: installs,
+    backgroundColor: 'rgba(79, 70, 229, 0.8)',
+    borderColor: 'rgba(79, 70, 229, 1)',
+    borderWidth: 1
+    }]
+    },
+    options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+    legend: { display: false }
+    },
+    scales: {
+    y: {
+    beginAtZero: true,
+    ticks: { color: '#94a3b8' },
+    grid: { color: 'rgba(255, 255, 255, 0.1)' }
+    },
+    x: {
+    ticks: { color: '#94a3b8' },
+    grid: { display: false }
+    }
+    }
+    }
+    });
+
+    // Active users chart (line)
+    charts.active = new Chart(document.getElementById('activeChart'), {
+    type: 'line',
+    data: {
+    labels,
+    datasets: [{
+    label: 'Active Users',
+    data: active,
+    borderColor: '#10b981',
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    tension: 0.4,
+    fill: true,
+    borderWidth: 2
+    }]
+    },
+    options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+    legend: { display: false }
+    },
+    scales: {
+    y: {
+    beginAtZero: true,
+    ticks: { color: '#94a3b8' },
+    grid: { color: 'rgba(255, 255, 255, 0.1)' }
+    },
+    x: {
+    ticks: { color: '#94a3b8' },
+    grid: { display: false }
+    }
+    }
+    }
+    });
+
+    // Mellowtel chart (line)
+    charts.mellowtel = new Chart(document.getElementById('mellowtelChart'), {
+    type: 'line',
+    data: {
+    labels,
+    datasets: [{
+    label: 'Mellowtel Opt-ins',
+    data: mellowtel,
+    borderColor: '#f59e0b',
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    tension: 0.4,
+    fill: true,
+    borderWidth: 2
+    }]
+    },
+    options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+    legend: { display: false }
+    },
+    scales: {
+    y: {
+    beginAtZero: true,
+    ticks: { color: '#94a3b8' },
+    grid: { color: 'rgba(255, 255, 255, 0.1)' }
+    },
+    x: {
+    ticks: { color: '#94a3b8' },
+    grid: { display: false }
+    }
+    }
+    }
+    });
+    }
+
+    // Input is now in SECONDS
+    function formatDuration(seconds) {
+    if (!seconds) return '00:00:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+
+    const hStr = h < 10 ? '0' + h : h; const mStr=m < 10 ? '0' + m : m; const sStr=s < 10 ? '0' + s : s; return
+        `${hStr}:${mStr}:${sStr}`; } function renderRecentInstalls(installations) { const
+        tbody=document.getElementById('recentInstallsBody'); if (!installations || installations.length===0) {
+        tbody.innerHTML='<tr><td colspan="6" style="text-align: center; color: #94a3b8;">No installations found</td></tr>'
+        ; return; } tbody.innerHTML=installations.map(install=> {
+        let statusBadge = '';
+
+        // Determine online status
+        if (install.status === 'uninstalled') {
+        statusBadge = '<span class="badge"
+            style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Uninstalled</span>';
+        } else if (install.isOnline) {
+        statusBadge = '<span class="badge badge-success">● Online</span>';
+        } else {
+        statusBadge = '<span class="badge badge-warning">○ Offline</span>';
+        }
+
+        return `
+        <tr>
+            <td><span class="code">${install.install_id.substring(0, 8)}...</span></td>
+            <td>${new Date(install.installed_at).toLocaleDateString()}</td>
+            <td>${statusBadge}</td>
+            <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(install.totalActiveSeconds)}</td>
+            <td>${install.mellowtel_opted_in ? '✅ Yes' : '❌ No'}</td>
+            <td style="font-size: 0.8em; color: #94a3b8;">${new Date(install.last_active).toLocaleString()}</td>
+        </tr>
+        `;
+        }).join('');
         }
 
         function copyRefCode() {
-            const code = document.getElementById('detailRefCode').textContent;
-            navigator.clipboard.writeText(code).then(() => {
-                const btn = event.target;
-                const originalText = btn.textContent;
-                btn.textContent = '✅ Copied!';
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                }, 2000);
-            });
+        const code = document.getElementById('detailRefCode').textContent;
+        navigator.clipboard.writeText(code).then(() => {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => {
+        btn.textContent = originalText;
+        }, 2000);
+        });
         }
 
         // Close modal on background click
         document.getElementById('userDetailModal').addEventListener('click', (e) => {
-            if (e.target.id === 'userDetailModal') {
-                closeUserDetail();
-            }
+        if (e.target.id === 'userDetailModal') {
+        closeUserDetail();
+        }
         });
 
-        // Load on page load
-        loadAdminData();
-
-        // Auto-refresh every 30 seconds
-        setInterval(loadAdminData, 30000);
-    </script>
+        </script>
 </body>
 
 </html><!-- Force Update -->

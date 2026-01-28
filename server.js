@@ -213,20 +213,17 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
         const usersWithStats = await Promise.all(users.map(async (user) => {
             const stats = await getStatsByReferral(user.referral_code);
 
-            // Get total active minutes for this user
-            const { data: userInstalls } = await require('./database').supabase
-                .from('installations')
-                .select('total_active_minutes')
-                .eq('user_id', user.id); // Assuming stats are linked by user_id or referral code
-
-            // Alternative: Filter by referral code if user_id link is weak in stats (but user_id is foreign key)
-            // Using referral code is safest for existing logic
+            // Get total active seconds for this user
             const { data: installsByRef } = await require('./database').supabase
                 .from('installations')
-                .select('total_active_minutes')
+                .select('active_seconds, total_active_minutes')
                 .eq('referral_code', user.referral_code);
 
-            const userTotalMinutes = (installsByRef || []).reduce((sum, inst) => sum + (inst.total_active_minutes || 0), 0);
+            // Sum seconds, falling back to minutes*60 if seconds is 0/null
+            const userTotalSeconds = (installsByRef || []).reduce((sum, inst) => {
+                const seconds = inst.active_seconds || (inst.total_active_minutes * 60) || 0;
+                return sum + seconds;
+            }, 0);
 
             return {
                 id: user.id,
@@ -236,7 +233,7 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                 totalInstalls: stats.totalInstalls,
                 mellowtelOptIns: stats.mellowtelOptIns,
                 activeUsers: stats.activeUsers,
-                totalActiveMinutes: userTotalMinutes
+                totalActiveSeconds: userTotalSeconds // Send seconds to frontend
             };
         }));
 
@@ -244,7 +241,7 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
         const totalInstalls = usersWithStats.reduce((sum, user) => sum + user.totalInstalls, 0);
         const totalMellowtelOptIns = usersWithStats.reduce((sum, user) => sum + user.mellowtelOptIns, 0);
         const totalActiveUsers = usersWithStats.reduce((sum, user) => sum + user.activeUsers, 0);
-        const grandTotalActiveMinutes = usersWithStats.reduce((sum, user) => sum + user.totalActiveMinutes, 0);
+        const grandTotalActiveSeconds = usersWithStats.reduce((sum, user) => sum + user.totalActiveSeconds, 0);
 
         // Fetch global inactive count efficiently
         const { count: totalInactive, error: inactiveError } = await require('./database').supabase
@@ -260,7 +257,7 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
             totalMellowtelOptIns,
             totalActiveUsers,
             totalInactive: totalInactive || 0,
-            grandTotalActiveMinutes
+            grandTotalActiveSeconds
         };
 
         res.json({
@@ -396,7 +393,7 @@ app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin
             recentInstallations: recentInstalls.map(install => ({
                 ...install,
                 isOnline: new Date(install.last_active) > new Date(Date.now() - 10 * 60 * 1000), // Active in last 10 mins (safer buffer)
-                totalActiveMinutes: install.total_active_minutes || 0
+                totalActiveSeconds: install.active_seconds || (install.total_active_minutes * 60) || 0
             })) || []
         });
     } catch (error) {
@@ -686,7 +683,7 @@ app.get('/api/track/uninstall', async (req, res) => {
 // Track user activity (heartbeat)
 app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
     try {
-        const { installId, activeMinutes = 2 } = req.body;
+        const { installId, activeMinutes, activeSeconds = 3 } = req.body;
 
         if (!installId) {
             return res.status(400).json({ error: 'Install ID required' });
@@ -698,22 +695,26 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
             return res.status(404).json({ error: 'Installation not found' });
         }
 
-        // Update last active time and increment total active minutes
-        // We use a raw SQL query for atomic increment to avoid race conditions
-        const { error } = await supabase.rpc('increment_active_minutes', {
+        // Calculate increment
+        // If extension sends minutes (old ver), use that * 60. If seconds (new ver), use seconds.
+        const secondsToAdd = activeSeconds || (activeMinutes ? activeMinutes * 60 : 3);
+
+        // Update last active time and increment total active seconds
+        const { error } = await supabase.rpc('increment_active_seconds', {
             row_id: installation.id,
-            minutes: activeMinutes
+            seconds: secondsToAdd
         });
 
-        // Fallback if RPC doesn't exist (using normal update, less atomic but works for basic implementation)
         if (error) {
-            // Check if it's just that the function doesn't exist
+            // Fallback update
             const { error: updateError } = await supabase
                 .from('installations')
                 .update({
                     last_active: new Date().toISOString(),
                     status: 'active',
-                    total_active_minutes: (installation.total_active_minutes || 0) + activeMinutes
+                    // Update both columns to keep sync active
+                    active_seconds: (installation.active_seconds || 0) + secondsToAdd,
+                    total_active_minutes: Math.floor(((installation.active_seconds || 0) + secondsToAdd) / 60)
                 })
                 .eq('install_id', installId);
 
@@ -723,7 +724,7 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
         // Notify SSE clients
         await notifyClients(installation.referral_code);
 
-        res.json({ message: 'Activity tracked', activeMinutes });
+        res.json({ message: 'Activity tracked', activeSeconds: secondsToAdd });
     } catch (error) {
         console.error('Activity tracking error:', error);
         res.status(500).json({ error: 'Failed to track activity' });
