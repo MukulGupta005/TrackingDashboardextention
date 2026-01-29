@@ -870,21 +870,41 @@ app.get('/api/track/uninstall', async (req, res) => {
     try {
         const { referralCode, installId } = req.query;
 
-        if (installId) {
-            await installationQueries.markInstallationAsUninstalled(installId);
-            if (referralCode) {
-                await notifyClients(referralCode);
-            }
+        if (!installId) {
+            console.warn('[UNINSTALL] Missing installId in request');
+            return res.status(400).send('Missing installId');
         }
 
-        // Return a simple HTML page
+        console.log(`[UNINSTALL] Processing for ${installId.substring(0, 8)}...`);
+
+        // 1. Mark as uninstalled in DB (handles status, uninstalled_at, and mellowtel_opted_in)
+        await installationQueries.markInstallationAsUninstalled(installId);
+
+        // 2. Notify clients to refresh dashboards
+        if (referralCode) {
+            await notifyClients(referralCode);
+        }
+
+        // 3. Return a nice HTML page
         res.send(`
+            <!DOCTYPE html>
             <html>
-                <head><title>Uninstalled</title></head>
-                <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <head>
+                <title>Uninstalled - ConnectEz</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 100px 20px; background-color: #f9fafb; color: #111827; }
+                    .card { max-width: 500px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+                    h1 { color: #4f46e5; margin-bottom: 16px; font-size: 24px; }
+                    p { font-size: 16px; line-height: 1.5; color: #4b5563; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
                     <h1>Thank you for using ConnectEz!</h1>
-                    <p>We're sorry to see you go. Your installation has been deregistered.</p>
-                </body>
+                    <p>We're sorry to see you go. Your installation has been successfully deregistered.</p>
+                    <p style="margin-top: 24px; font-size: 14px; color: #9ca3af;">You can close this tab now.</p>
+                </div>
+            </body>
             </html>
         `);
     } catch (error) {
@@ -930,8 +950,14 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
         // 2. MELLOWTEL OPT-IN CHECK (For Time Tracking Only)
         // ===============================================
         // Only track active time for users who have opted into Mellowtel
+        // Notify clients that status might have updated (Online/Offline)
+        await notifyClients(installation.referral_code);
+
+        // 2. MELLOWTEL OPT-IN CHECK (For Time Tracking Only)
+        // ===============================================
+        // Only track active time for users who have opted into Mellowtel
         if (!installation.mellowtel_opted_in) {
-            console.log(`[HEARTBEAT] Install ${installId.substring(0, 8)} - Mellowtel NOT opted in, active time paused.`);
+            console.log(`[HEARTBEAT] Install ${installId.substring(0, 8)} - Online, but Mellowtel NOT opted in. Active time paused.`);
             return res.json({
                 message: 'Online status updated (Mellowtel opt-in required for active time accumulation)',
                 mellowtelRequired: true
@@ -1043,7 +1069,7 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
         // to avoid double counting or inaccurate fixed increments.
         // But we need to handle the response.
 
-        await notifyClients(installation.referral_code);
+        // notifyClients already called above to handle early returns
         res.json({ message: 'Activity tracked' });
 
     } catch (error) {
@@ -1072,53 +1098,7 @@ app.get('/api/admin/history/install/:installId', authenticateToken, authenticate
     }
 });
 
-// Track uninstall (called when user uninstalls extension)
-app.get('/api/track/uninstall', async (req, res) => {
-    try {
-        const { referralCode, installId } = req.query;
-
-        if (!referralCode || !installId) {
-            return res.status(400).send('Missing parameters');
-        }
-
-        // Mark installation as uninstalled
-        const { error } = await supabase
-            .from('installations')
-            .update({
-                status: 'uninstalled',
-                uninstalled_at: new Date().toISOString()
-            })
-            .eq('install_id', installId)
-            .eq('referral_code', referralCode);
-
-        if (error) {
-            console.error('Uninstall tracking error:', error);
-            return res.status(500).send('Failed to track uninstall');
-        }
-
-        // Send thank you page
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Thank You</title>
-                <style>
-                    body { font-family: Arial; text-align: center; padding: 50px; }
-                    h1 { color: #667eea; }
-                </style>
-            </head>
-            <body>
-                <h1>Thank you for using LinkedIn ConnectEz!</h1>
-                <p>We're sorry to see you go. Your feedback helps us improve.</p>
-                <p>If you'd like to share why you uninstalled, please <a href="mailto:support@example.com">contact us</a>.</p>
-            </body>
-            </html>
-        `);
-    } catch (error) {
-        console.error('Uninstall tracking error:', error);
-        res.status(500).send('Error');
-    }
-});
+// End of endpoints
 
 // ============================================
 // START SERVER
