@@ -236,7 +236,7 @@ app.get('/api/user/details', authenticateToken, async (req, res) => {
         // 5. Get recent installations (Detailed list)
         const recentInstallations = [...installations].sort((a, b) => new Date(b.installed_at) - new Date(a.installed_at)).slice(0, 50).map(install => ({
             ...install,
-            isOnline: new Date(install.last_active) > new Date(Date.now() - 30 * 1000),
+            isOnline: install.last_active ? (Math.abs(new Date() - new Date(install.last_active)) < 6000) : false,
             totalActiveSeconds: install.active_seconds || (install.total_active_minutes * 60) || 0
         }));
 
@@ -365,14 +365,15 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                     totalInstalls: 0,
                     activeUsers: 0,
                     mellowtelOptIns: 0,
-                    totalActiveSeconds: 0
+                    totalActiveSeconds: 0,
+                    isOnline: false
                 };
             }
         });
 
         // Process all installations once
         const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000);
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const twentyFourHoursAgo = new Date(Date.now() - 1 * 60 * 1000); // 1 min for snappier Active card // 5 mins for "Active" card
 
         (allInstalls || []).forEach(inst => {
             // Count global inactive
@@ -400,6 +401,13 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                     stats.activeUsers++;
                 }
 
+                // Check IF ONLINE NOW (45s threshold for 30s batching)
+                const isOnlineNow = inst.last_active && (Math.abs(new Date() - new Date(inst.last_active)) < 45000);
+                // console.log(`[DEBUG] Ref: ${ref} Last: ${inst.last_active} Diff: ${inst.last_active ? Math.abs(new Date() - new Date(inst.last_active)) : 'N/A'} Online: ${isOnlineNow}`);
+                if (isOnlineNow) {
+                    stats.isOnline = true;
+                }
+
                 const seconds = inst.active_seconds || (inst.total_active_minutes * 60) || 0;
                 stats.totalActiveSeconds += seconds;
                 grandTotalActiveSeconds += seconds;
@@ -412,7 +420,8 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                 totalInstalls: 0,
                 activeUsers: 0,
                 mellowtelOptIns: 0,
-                totalActiveSeconds: 0
+                totalActiveSeconds: 0,
+                isOnline: false
             };
 
             return {
@@ -423,7 +432,8 @@ app.get('/api/admin/users', authenticateToken, authenticateAdmin, async (req, re
                 totalInstalls: stats.totalInstalls,
                 mellowtelOptIns: stats.mellowtelOptIns,
                 activeUsers: stats.activeUsers,
-                totalActiveSeconds: stats.totalActiveSeconds
+                totalActiveSeconds: stats.totalActiveSeconds,
+                isOnline: stats.isOnline || false
             };
         });
 
@@ -573,8 +583,8 @@ app.get('/api/admin/users/:userId/details', authenticateToken, authenticateAdmin
             dailyStats: Object.values(dailyStatsMap),
             recentInstallations: recentInstalls.map(install => ({
                 ...install,
-                // Active in last 8 seconds (Allows ~2 missed heartbeats)
-                isOnline: new Date(install.last_active) > new Date(Date.now() - 8 * 1000),
+                // Active in last 45 seconds
+                isOnline: install.last_active ? (new Date(Date.now() - 45 * 1000) < new Date(install.last_active)) : false,
                 totalActiveSeconds: install.active_seconds || (install.total_active_minutes * 60) || 0
             })) || []
         });
@@ -797,21 +807,8 @@ app.post('/api/track/install', authenticateApiKey, async (req, res) => {
     }
 });
 
-// Track Activity Heartbeat
-app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
-    try {
-        const { installId } = req.body;
-        if (!installId) {
-            return res.status(400).json({ error: 'Missing installId' });
-        }
+// Redundant simple endpoint removed in favor of complex session tracking below.
 
-        await installationQueries.updateLastActive(installId);
-        res.json({ status: 'ok' });
-    } catch (error) {
-        console.error('Activity track error:', error);
-        res.status(500).json({ error: 'Failed to track activity' });
-    }
-});
 
 // Track Mellowtel opt-in
 app.post('/api/track/mellowtel', authenticateApiKey, async (req, res) => {
@@ -899,7 +896,8 @@ app.get('/api/track/uninstall', async (req, res) => {
 // Track user activity (heartbeat)
 app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
     try {
-        const { installId, activeMinutes, activeSeconds = 3 } = req.body;
+        const { installId, activeMinutes, activeSeconds } = req.body;
+        const supabase = require('./database').supabase;
 
         if (!installId) {
             return res.status(400).json({ error: 'Install ID required' });
@@ -911,23 +909,65 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
             return res.status(404).json({ error: 'Installation not found' });
         }
 
+        // Check for Explicit Offline Signal
+        const isForcingOffline = req.body.forceOffline === true;
+
+        if (isForcingOffline) {
+            console.log(`[STATUS] Install ${installId.substring(0, 8)} - FORCED OFFLINE`);
+            // Set timestamp to 10 minutes ago
+            await installationQueries.updateLastActive(installId, new Date(Date.now() - 10 * 60 * 1000));
+            return res.json({ message: 'Forced offline success' });
+        }
+
         // ===============================================
-        // MELLOWTEL OPT-IN CHECK
+        // 1. UPDATE ONLINE STATUS (Always for valid heartbeat)
+        // ===============================================
+        // We update last_active immediately to keep the status Green
+        await installationQueries.updateLastActive(installId);
+        console.log(`[STATUS] Install ${installId.substring(0, 8)} - Online status refreshed`);
+
+        // ===============================================
+        // 2. MELLOWTEL OPT-IN CHECK (For Time Tracking Only)
         // ===============================================
         // Only track active time for users who have opted into Mellowtel
         if (!installation.mellowtel_opted_in) {
-            // User hasn't opted in - acknowledge heartbeat but don't track time
+            console.log(`[HEARTBEAT] Install ${installId.substring(0, 8)} - Mellowtel NOT opted in, active time paused.`);
             return res.json({
-                message: 'Heartbeat received (Mellowtel opt-in required for activity tracking)',
+                message: 'Online status updated (Mellowtel opt-in required for active time accumulation)',
                 mellowtelRequired: true
             });
         }
 
+        console.log(`[HEARTBEAT] Install ${installId.substring(0, 8)} - Mellowtel ✓, accumulating time...`);
+
         // ===============================================
-        // SESSION TRACKING (Timestamp-Based Logic)
+        // 3. DATA-DRIVEN TOTAL TIME ACCUMULATION
+        // ===============================================
+        let deltaSeconds = 0;
+        if (activeSeconds !== undefined && activeSeconds !== null) {
+            deltaSeconds = parseInt(activeSeconds);
+        }
+
+        if (deltaSeconds > 0) {
+            try {
+                // Use RPC for atomic increment
+                // Note: increment_active_seconds also updates last_active, which is fine (redundant but safe)
+                const { error: rpcError } = await supabase.rpc('increment_active_seconds', {
+                    row_id: installation.id,
+                    seconds: deltaSeconds
+                });
+
+                if (rpcError) throw rpcError;
+                console.log(`[HEARTBEAT] Accumulated ${deltaSeconds}s for ${installId.substring(0, 8)}`);
+            } catch (err) {
+                console.error('[HEARTBEAT ERROR] Failed to increment active_seconds:', err);
+            }
+        }
+
+        // ===============================================
+        // 2. SESSION LOGGING (History Tracking Only)
         // ===============================================
         try {
-            const supabase = require('./database').supabase;
             const now = new Date();
 
             // 1. Get the most recent session for this install
@@ -939,7 +979,7 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                 .limit(1)
                 .single();
 
-            const GAP_THRESHOLD_MS = 15 * 1000; // 15 seconds
+            const GAP_THRESHOLD_MS = 45 * 1000; // 45 seconds (Allows 30s batching)
 
             if (lastSession) {
                 const lastHeartbeatTime = new Date(lastSession.last_heartbeat).getTime();
@@ -947,12 +987,16 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
 
                 if (timeDiff < GAP_THRESHOLD_MS) {
                     // CONTINUE SESSION
-                    // Just update the last_heartbeat timestamp
-                    // Duration will be calculated when session closes
+                    // Update last_heartbeat AND duration_seconds immediately
+                    const startTime = new Date(lastSession.start_time).getTime();
+                    const currentDuration = Math.floor((now.getTime() - startTime) / 1000);
+
+                    // ALSO update session last_heartbeat
                     await supabase
                         .from('activity_sessions')
                         .update({
-                            last_heartbeat: now.toISOString()
+                            last_heartbeat: now.toISOString(),
+                            duration_seconds: currentDuration
                         })
                         .eq('id', lastSession.id);
                 } else {
@@ -968,12 +1012,6 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                         })
                         .eq('id', lastSession.id);
 
-                    // Increment total active time by this session's duration
-                    await supabase.rpc('increment_active_seconds', {
-                        row_id: installation.id,
-                        seconds: finalDuration
-                    });
-
                     // START NEW SESSION
                     await supabase.from('activity_sessions').insert([{
                         install_id: installId,
@@ -981,6 +1019,9 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                         last_heartbeat: now.toISOString(),
                         duration_seconds: 0
                     }]);
+
+                    // Sync last_active
+                    await installationQueries.updateLastActive(installId);
                 }
             } else {
                 // FIRST SESSION EVER
@@ -990,6 +1031,9 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
                     last_heartbeat: now.toISOString(),
                     duration_seconds: 0
                 }]);
+
+                // Sync last_active
+                await installationQueries.updateLastActive(installId);
             }
         } catch (sessionError) {
             console.error('Session tracking error:', sessionError);
@@ -1005,6 +1049,26 @@ app.post('/api/track/activity', authenticateApiKey, async (req, res) => {
     } catch (error) {
         console.error('Activity tracking error:', error);
         res.status(500).json({ error: 'Failed to track activity' });
+    }
+});
+
+// Admin: Get history for a specific installation
+app.get('/api/admin/history/install/:installId', authenticateToken, authenticateAdmin, async (req, res) => {
+    try {
+        const { installId } = req.params;
+        const { data: sessions, error } = await require('./database').supabase
+            .from('activity_sessions')
+            .select('*')
+            .eq('install_id', installId)
+            .order('start_time', { ascending: false })
+            .limit(100);
+
+        if (error) throw error;
+
+        res.json({ sessions: sessions || [] });
+    } catch (error) {
+        console.error('Admin install history error:', error);
+        res.status(500).json({ error: 'Failed to load history' });
     }
 });
 

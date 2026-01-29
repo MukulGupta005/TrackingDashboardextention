@@ -1,4 +1,4 @@
--- Function to safely increment active_seconds
+-- FIX: Update RPC to accept BigInt instead of UUID
 create or replace function increment_active_seconds(row_id bigint, seconds int)
 returns void
 language plpgsql

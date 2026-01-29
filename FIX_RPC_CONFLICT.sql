@@ -1,4 +1,7 @@
--- Function to safely increment active_seconds
+-- FIX: Drop the old "UUID" version to prevent conflict error
+DROP FUNCTION IF EXISTS increment_active_seconds(uuid, int);
+
+-- Ensure the correct version is defined
 create or replace function increment_active_seconds(row_id bigint, seconds int)
 returns void
 language plpgsql

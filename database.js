@@ -170,10 +170,10 @@ const installationQueries = {
     return data;
   },
 
-  async updateLastActive(installId) {
+  async updateLastActive(installId, timestamp = new Date()) {
     const { data, error } = await supabase
       .from('installations')
-      .update({ last_active: new Date().toISOString() })
+      .update({ last_active: timestamp.toISOString() })
       .eq('install_id', installId)
       .select();
 
@@ -203,14 +203,15 @@ const installationQueries = {
   },
 
   async countActiveByReferral(referralCode) {
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const threshold = new Date(Date.now() - 45000).toISOString();
 
     const { count, error } = await supabase
       .from('installations')
       .select('*', { count: 'exact', head: true })
       .eq('referral_code', referralCode)
-      .gte('last_active', twentyFourHoursAgo)
-      .in('status', ['active', null]); // Only count active or null status
+      .eq('mellowtel_opted_in', true) // Only count if opted in
+      .gte('last_active', threshold)
+      .neq('status', 'uninstalled');
 
     if (error) throw error;
     return { count };
@@ -259,36 +260,91 @@ const installationQueries = {
 
     if (error && error.code !== 'PGRST116') throw error;
     return data;
+  },
+
+  async sumActiveSecondsByReferral(referralCode) {
+    // Supabase JS doesn't have a direct .sum() yet without using .rpc or raw sql ideally,
+    // but we can select active_seconds and sum in memory or use a simple query.
+    // For scalability, RPC is better, but let's assume we can fetch active_seconds for all.
+    // Actually, iterating ALL might be heavy. Let's try RPC if possible, or just fetch necessary fields.
+    const { data, error } = await supabase
+      .from('installations')
+      .select('active_seconds')
+      .eq('referral_code', referralCode);
+
+    if (error) throw error;
+
+    const total = (data || []).reduce((acc, curr) => acc + (curr.active_seconds || 0), 0);
+    return total;
   }
 };
 
 // Stats operations
+// Stats operations
 async function getStatsByReferral(referralCode) {
-  const totalInstallsResult = await installationQueries.countByReferral(referralCode);
-  const mellowtelOptInsResult = await installationQueries.countMellowtelByReferral(referralCode);
-  const activeUsersResult = await installationQueries.countActiveByReferral(referralCode);
-  const inactiveResult = await installationQueries.countInactiveByReferral(referralCode);
-  const uninstalledResult = await installationQueries.countUninstalledByReferral(referralCode);
-  const recentInstalls = await installationQueries.getRecentByReferral(referralCode, 10);
-
-  // Enrich installations with last session timestamps
-  const enrichedInstalls = await Promise.all(
-    (recentInstalls || []).map(async (install) => {
-      const { data: lastSession } = await supabase
-        .from('activity_sessions')
-        .select('start_time, last_heartbeat')
-        .eq('install_id', install.install_id)
-        .order('last_heartbeat', { ascending: false })
-        .limit(1)
-        .single();
-
-      return {
-        ...install,
-        last_active_start: lastSession?.start_time || null,
-        last_active_stop: lastSession?.last_heartbeat || null
-      };
+  // Execute all independent queries in parallel for performance
+  const [
+    totalInstallsResult,
+    mellowtelOptInsResult,
+    activeUsersResult,
+    inactiveResult,
+    uninstalledResult,
+    recentInstalls,
+    totalActiveSeconds
+  ] = await Promise.all([
+    installationQueries.countByReferral(referralCode).catch(e => ({ count: 0 })),
+    installationQueries.countMellowtelByReferral(referralCode).catch(e => ({ count: 0 })),
+    installationQueries.countActiveByReferral(referralCode).catch(e => ({ count: 0 })),
+    installationQueries.countInactiveByReferral(referralCode).catch(e => ({ count: 0 })),
+    installationQueries.countUninstalledByReferral(referralCode).catch(e => ({ count: 0 })),
+    installationQueries.getRecentByReferral(referralCode, 10).catch(e => []),
+    installationQueries.sumActiveSecondsByReferral(referralCode).catch(e => {
+      console.error('Sum active seconds failed:', e);
+      return 0;
     })
-  );
+  ]);
+
+  // Get all install IDs for batch session query
+  const installIds = (recentInstalls || []).map(i => i.install_id);
+
+  // Batch fetch last sessions for all installations at once (MUCH faster!)
+  let sessionMap = {};
+  if (installIds.length > 0) {
+    try {
+      const { data: sessions } = await supabase
+        .from('activity_sessions')
+        .select('install_id, start_time, last_heartbeat')
+        .in('install_id', installIds)
+        .order('last_heartbeat', { ascending: false });
+
+      // Build map of install_id -> latest session
+      (sessions || []).forEach(session => {
+        if (!sessionMap[session.install_id]) {
+          sessionMap[session.install_id] = session;
+        }
+      });
+    } catch (err) {
+      console.error('Session batch fetch error:', err);
+    }
+  }
+
+  // Enrich installations with pre-fetched session data
+  const now = new Date();
+  const enrichedInstalls = (recentInstalls || []).map(install => {
+    const lastSession = sessionMap[install.install_id];
+
+    // Server-Side Online Logic (45s threshold)
+    // Only Online if ACTIVE within last 45s AND OPTED INTO Mellowtel
+    const lastActive = install.last_active ? new Date(install.last_active) : null;
+    const isOnline = lastActive && (now - lastActive < 45000) && (install.mellowtel_opted_in === true || install.mellowtel_opted_in === 'true');
+
+    return {
+      ...install,
+      last_active_start: lastSession?.start_time || null,
+      isOnline: !!isOnline,
+      last_active_stop: lastSession?.last_heartbeat || null
+    };
+  });
 
   return {
     totalInstalls: totalInstallsResult.count || 0,
@@ -296,13 +352,14 @@ async function getStatsByReferral(referralCode) {
     activeUsers: activeUsersResult.count || 0,
     inactiveInstalls: inactiveResult.count || 0,
     uninstalledInstalls: uninstalledResult.count || 0,
-    recentInstalls: enrichedInstalls
+    recentInstalls: enrichedInstalls,
+    totalActiveSeconds: totalActiveSeconds || 0
   };
 }
 
 // Get stats by extension
 async function getStatsByExtension(extensionId) {
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const twentyFourHoursAgo = new Date(Date.now() - 1 * 60 * 1000).toISOString(); // 1 min for online responsiveness // 5 mins for online responsiveness
 
   // Get counts
   const { count: totalInstalls } = await supabase

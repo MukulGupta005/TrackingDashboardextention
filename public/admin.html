@@ -387,16 +387,56 @@
             margin-left: 8px;
         }
 
+        .view-history-btn {
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: #818cf8;
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            margin-left: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
         .view-history-btn:hover {
-            background: rgba(79, 70, 229, 0.1);
+            background: rgba(99, 102, 241, 0.2);
+            border-color: rgba(99, 102, 241, 0.5);
+            transform: translateY(-1px);
+            color: white;
+        }
+
+        .view-history-btn:active {
+            transform: translateY(0);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-dot.online {
+            background-color: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        }
+
+        .status-dot.offline {
+            background-color: #94a3b8;
         }
     </style>
 </head>
 
 <body>
     <!-- History Modal -->
-    <div class="modal" id="historyModal">
-        <div class="modal-content" style="max-width: 600px;">
+    <div class="modal" id="historyModal" style="z-index: 1100;">
+        <div class="modal-content" style="max-width: 800px;">
             <div class="modal-header">
                 <h2>Activity History</h2>
                 <button class="close-modal" onclick="closeHistoryModal()">×</button>
@@ -627,7 +667,7 @@
 
                 tbody.innerHTML = data.users.map(user => `
           <tr onclick="showUserDetail('${user.id}')">
-            <td>${user.email}</td>
+            <td><span class="status-dot ${user.isOnline ? 'online' : 'offline'}"></span>${user.email}</td>
             <td><span class="code">${user.referralCode}</span></td>
             <td>
                 ${user.totalInstalls}
@@ -726,7 +766,7 @@
         loadAdminData();
 
         // Refresh main list every 3 seconds for fast updates
-        setInterval(loadAdminData, 3000);
+        setInterval(loadAdminData, 2000);
 
         // Refresh user details if modal is open (every 3 seconds)
         setInterval(() => {
@@ -735,7 +775,7 @@
                 // Pass false to a hypothetical 'isAutoRefresh' param if we wanted to suppress charts
                 loadUserDetail(currentUserId, currentDays);
             }
-        }, 3000);
+        }, 2000);
 
 
         function renderUserCharts(dailyStats) {
@@ -856,15 +896,29 @@
 
         // History Modal Functions
         async function showHistory(referralCode, event) {
-            event.stopPropagation(); // Prevent row click
+            if (event) {
+                event.stopPropagation();
+                event.preventDefault();
+            }
+
+            if (!referralCode) {
+                console.error('showHistory: Missing referralCode');
+                return;
+            }
 
             const modal = document.getElementById('historyModal');
             const tbody = document.getElementById('historyBody');
             const loading = document.getElementById('historyLoading');
             const table = document.getElementById('historyTable');
 
+            if (!modal) {
+                console.error('showHistory: Modal "historyModal" not found');
+                return;
+            }
+
             modal.classList.add('active');
             loading.style.display = 'block';
+            loading.innerHTML = '🕒 Loading referral history...';
             table.style.display = 'none';
             tbody.innerHTML = '';
 
@@ -872,10 +926,15 @@
                 const response = await fetch(`${API_URL}/admin/history/${referralCode}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP Error: ${response.status}`);
+                }
+
                 const data = await response.json();
 
-                if (data.sessions.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #94a3b8;">No history found</td></tr>';
+                if (!data.sessions || data.sessions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 20px;">No session history found for this referral code.</td></tr>';
                 } else {
                     tbody.innerHTML = data.sessions.map(session => `
                         <tr>
@@ -890,7 +949,9 @@
                 table.style.display = 'table';
             } catch (error) {
                 console.error('History load error:', error);
-                loading.textContent = 'Failed to load history';
+                loading.innerHTML = `<div style="color: #ef4444; padding: 10px;">
+                    <strong>⚠️ Error loading history:</strong><br>${error.message}
+                </div>`;
             }
         }
 
@@ -919,31 +980,127 @@
         function renderRecentInstalls(installations) {
             const tbody = document.getElementById('recentInstallsBody');
             if (!installations || installations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8;">No installations found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">No installations found</td></tr>';
                 return;
-            } tbody.innerHTML = installations.map(install => {
-                let statusBadge = '';
+            }
 
-                // Determine online status
+            const now = new Date();
+
+            tbody.innerHTML = installations.map(install => {
+                // Determine online status (Trusting Server isOnline)
+                const isOnline = install.isOnline;
+
+                if (install.status === 'uninstalled') {
+                    statusBadge = '<span class="status-badge status-uninstalled">Uninstalled</span>';
+                } else if (isOnline) {
+                    statusBadge = '<span class="status-badge status-active">Online</span>';
+                } else {
+                    statusBadge = '<span class="status-badge status-inactive">Offline</span>';
+                }
+
+                // ... (rest of mapping logic) ...
+
                 if (install.status === 'uninstalled') {
                     statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Uninstalled</span>';
-                } else if (install.isOnline) {
+                } else if (isOnline) {
                     statusBadge = '<span class="badge badge-success">● Online</span>';
                 } else {
                     statusBadge = '<span class="badge badge-warning">○ Offline</span>';
                 }
 
+                // Format timestamps
+                const formatTimestamp = (timestamp) => {
+                    if (!timestamp) return 'N/A';
+                    const d = new Date(timestamp);
+                    return d.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                };
+
                 return `
         <tr>
-            <td><span class="code">${install.install_id.substring(0, 8)}...</span></td>
+            <td>
+                <span class="code">${install.install_id.substring(0, 8)}...</span>
+                <br>
+                <div style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">
+                    Start: ${formatTimestamp(install.last_active_start)}<br>
+                    Stop: ${formatTimestamp(install.last_active_stop)}
+                </div>
+            </td>
             <td>${new Date(install.installed_at).toLocaleDateString()}</td>
             <td>${statusBadge}</td>
-            <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(install.totalActiveSeconds)}</td>
+            <td style="font-weight: 600; color: #a5b4fc;">${formatDuration(install.active_seconds || 0)}</td>
             <td>${install.mellowtel_opted_in ? '✅ Yes' : '❌ No'}</td>
-            <td style="font-size: 0.8em; color: #94a3b8;">${new Date(install.last_active).toLocaleString()}</td>
+            <td style="font-size: 0.8em; color: #94a3b8;">${install.last_active ? new Date(install.last_active).toLocaleString() : 'N/A'}</td>
+            <td>
+                <button class="view-history-btn" onclick="showInstallHistory('${install.install_id}', event)" style="padding: 4px 8px; font-size: 0.75rem;">🕒 History</button>
+            </td>
         </tr>
         `;
             }).join('');
+        }
+
+        async function showInstallHistory(installId, event) {
+            if (event) {
+                event.stopPropagation();
+                event.preventDefault();
+            }
+
+            if (!installId) {
+                console.error('showInstallHistory: Missing installId');
+                return;
+            }
+
+            const modal = document.getElementById('historyModal');
+            const tbody = document.getElementById('historyBody');
+            const loading = document.getElementById('historyLoading');
+            const table = document.getElementById('historyTable');
+
+            if (!modal) {
+                console.error('showInstallHistory: Modal "historyModal" not found');
+                return;
+            }
+
+            modal.classList.add('active');
+            loading.style.display = 'block';
+            loading.innerHTML = '🕒 Loading installation history...';
+            table.style.display = 'none';
+            tbody.innerHTML = '';
+
+            try {
+                const response = await fetch(`${API_URL}/admin/history/install/${installId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP Error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.sessions || data.sessions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 20px;">No session history found for this installation.</td></tr>';
+                } else {
+                    tbody.innerHTML = data.sessions.map(session => `
+                        <tr>
+                            <td>${new Date(session.start_time).toLocaleString()}</td>
+                            <td>${new Date(session.last_heartbeat).toLocaleString()}</td>
+                            <td style="color: #a5b4fc; font-weight: bold;">${formatDuration(session.duration_seconds)}</td>
+                        </tr>
+                    `).join('');
+                }
+
+                loading.style.display = 'none';
+                table.style.display = 'table';
+            } catch (error) {
+                console.error('Install history load error:', error);
+                loading.innerHTML = `<div style="color: #ef4444; padding: 10px;">
+                    <strong>⚠️ Error loading history:</strong><br>${error.message}
+                </div>`;
+            }
         }
 
         function copyRefCode() {
@@ -965,6 +1122,47 @@
             }
         });
 
+        // Initial Load
+        loadDashboardData();
+        updateRecentInstalls();
+
+        // Auto-Refresh Logic (Timer Based)
+        let countdown = 30;
+        const timerDisplay = document.createElement('div');
+        timerDisplay.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#333; color:white; padding:10px 20px; border-radius:30px; font-family:sans-serif; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.3); font-size:14px;';
+        timerDisplay.innerHTML = 'Next update: 30s';
+        document.body.appendChild(timerDisplay);
+
+        setInterval(async () => {
+            countdown--;
+            if (countdown <= 0) {
+                // 1. Show Updating State
+                timerDisplay.innerHTML = '⏳ Syncing...';
+                timerDisplay.style.background = '#eab308'; // Yellow/Orange
+
+                // 2. Wait for Data (Real Wait)
+                try {
+                    await loadDashboardData(false);
+                    await updateRecentInstalls();
+
+                    // 3. Show Success
+                    timerDisplay.innerHTML = '✅ Data Updated';
+                    timerDisplay.style.background = '#22c55e'; // Green
+                } catch (e) {
+                    timerDisplay.innerHTML = '❌ Error';
+                    timerDisplay.style.background = '#ef4444'; // Red
+                }
+
+                // 4. Restart Timer after short delay
+                setTimeout(() => {
+                    countdown = 30;
+                    timerDisplay.style.background = '#333';
+                    timerDisplay.innerHTML = `Next update: ${countdown}s`;
+                }, 2000);
+            } else {
+                timerDisplay.innerHTML = `Next update: ${countdown}s`;
+            }
+        }, 1000);
     </script>
 </body>
 

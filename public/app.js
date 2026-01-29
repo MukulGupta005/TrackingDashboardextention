@@ -4,6 +4,7 @@ const API_URL = window.location.origin;
 // State
 let currentUser = null;
 let eventSource = null;
+let dashboardPollInterval = null;
 
 // DOM Elements
 const authPage = document.getElementById('authPage');
@@ -18,8 +19,11 @@ const logoutBtn = document.getElementById('logoutBtn');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    checkAuth();
+    // 1. Setup listeners first so UI triggers work correctly
     setupEventListeners();
+    // 2. Check auth which might trigger immediate UI changes
+    checkAuth();
+    console.log('ConnectEz: Initialization complete');
 });
 
 // Setup event listeners
@@ -106,6 +110,14 @@ function showAuth() {
     dashboardPage.classList.add('hidden');
     // Show login form by default
     showLoginBtn.click();
+    stopDashboardPolling();
+}
+
+function stopDashboardPolling() {
+    if (dashboardPollInterval) {
+        clearInterval(dashboardPollInterval);
+        dashboardPollInterval = null;
+    }
 }
 
 // Show dashboard page
@@ -114,6 +126,53 @@ function showDashboard() {
     dashboardPage.classList.remove('hidden');
     updateDashboard();
     connectSSE();
+
+    // Start polling for real-time status updates (Fallback/Guaranteed)
+    stopDashboardPolling(); // Clear existing to be safe
+    // Start polling for real-time status updates (Timer Based 60s)
+    stopDashboardPolling(); // Clear existing to be safe
+
+    // Create Timer UI if not exists
+    let timerDisplay = document.getElementById('userDashboardTimer');
+    if (!timerDisplay) {
+        timerDisplay = document.createElement('div');
+        timerDisplay.id = 'userDashboardTimer';
+        timerDisplay.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#333; color:white; padding:10px 20px; border-radius:30px; font-family:sans-serif; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.3); font-size:14px;';
+        document.body.appendChild(timerDisplay);
+    }
+
+    let countdown = 30;
+    timerDisplay.innerHTML = 'Next update: 30s';
+    timerDisplay.style.background = '#333';
+
+    dashboardPollInterval = setInterval(async () => {
+        countdown--;
+        if (countdown <= 0) {
+            // 1. Show Updating
+            timerDisplay.innerHTML = '⏳ Syncing...';
+            timerDisplay.style.background = '#eab308'; // Yellow/Orange
+
+            // 2. Wait for Data
+            try {
+                await updateDashboard(true);
+
+                // 3. Show Success
+                timerDisplay.innerHTML = '✅ Data Updated';
+                timerDisplay.style.background = '#22c55e'; // Green
+            } catch (e) {
+                timerDisplay.innerHTML = '❌ Error';
+                timerDisplay.style.background = '#ef4444'; // Red
+            }
+
+            setTimeout(() => {
+                countdown = 30;
+                timerDisplay.style.background = '#333';
+                timerDisplay.innerHTML = `Next update: ${countdown}s`;
+            }, 2000);
+        } else {
+            timerDisplay.innerHTML = `Next update: ${countdown}s`;
+        }
+    }, 1000);
 }
 
 // Handle login
@@ -245,6 +304,14 @@ function updateStats(stats) {
     animateValue('mellowtelOptIns', stats.mellowtelOptIns);
     animateValue('activeUsers', stats.activeUsers);
 
+    // Update Total Active Time
+    const totalTimeEl = document.getElementById('totalActiveTime');
+    if (totalTimeEl) {
+        const totalSec = stats.totalActiveSeconds || 0;
+        totalTimeEl.textContent = formatDurationHMS(totalSec);
+        totalTimeEl.setAttribute('data-seconds', totalSec);
+    }
+
     // Update recent installations
     updateRecentInstalls(stats.recentInstalls);
 }
@@ -252,6 +319,7 @@ function updateStats(stats) {
 // Animate number change
 function animateValue(elementId, newValue) {
     const element = document.getElementById(elementId);
+    if (!element) return;
     const currentValue = parseInt(element.textContent) || 0;
 
     if (currentValue === newValue) return;
@@ -276,63 +344,126 @@ function animateValue(elementId, newValue) {
 // Update recent installations list
 function updateRecentInstalls(installs) {
     const installList = document.getElementById('installList');
+    if (!installList) return;
 
     if (!installs || installs.length === 0) {
         installList.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: var(--spacing-lg);">No installations yet. Share your referral code to get started!</p>';
         return;
     }
 
-    installList.innerHTML = installs.map(install => {
-        const date = new Date(install.installed_at);
-        const now = new Date();
-        const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
-        const isActive = diffHours < 24;
+    try {
+        installList.innerHTML = installs.map(install => {
+            const date = new Date(install.installed_at);
+            const now = new Date();
+            const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
 
-        let timeAgo;
-        if (diffHours < 1) {
-            const diffMins = Math.floor((now - date) / (1000 * 60));
-            timeAgo = `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-        } else if (diffHours < 24) {
-            timeAgo = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-        } else {
-            const diffDays = Math.floor(diffHours / 24);
-            timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-        }
+            // Online Status Calculation (Trusting Server isOnline)
+            let isOnline = install.isOnline;
+            const isUninstalled = install.status === 'uninstalled';
+            const canLiveTick = isOnline && !isUninstalled;
 
-        // Format timestamps
-        const formatTimestamp = (timestamp) => {
-            if (!timestamp) return 'N/A';
-            const d = new Date(timestamp);
-            return d.toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        };
+            let statusDotClass = isOnline ? 'online' : 'offline';
+            if (isUninstalled) statusDotClass = 'offline';
 
-        return `
-      <div class="install-item">
+            let timeAgo;
+            if (diffHours < 1) {
+                const diffMins = Math.floor((now - date) / (1000 * 60));
+                timeAgo = `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+            } else if (diffHours < 24) {
+                timeAgo = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+            } else {
+                const diffDays = Math.floor(diffHours / 24);
+                timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+            }
+
+            // Format timestamps
+            const formatTimestamp = (timestamp) => {
+                if (!timestamp) return 'N/A';
+                const d = new Date(timestamp);
+                return d.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            };
+
+            const activeTimeHMS = formatDurationHMS(install.active_seconds || 0);
+
+            return `
+      <div class="install-item ${isUninstalled ? 'uninstalled-fade' : ''}">
         <div class="install-info">
-          <div style="font-weight: 600;">
+          <div style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
              Installation <span style="font-family: monospace; opacity: 0.7;">#${install.install_id.substring(0, 8)}</span>
+             <span class="status-dot ${statusDotClass}" title="${isUninstalled ? 'Uninstalled' : (isOnline ? 'Online now' : 'Offline')}"></span>
           </div>
-          <div class="install-date">📅 ${timeAgo}</div>
+          <div class="install-date">
+            📅 Installed: ${timeAgo}
+            ${isUninstalled ? `<div style="color: #ef4444; font-size: 0.9em; font-weight: 600; margin-top:2px;">❌ Uninstalled: ${formatTimestamp(install.uninstalled_at)}</div>` : ''}
+          </div>
           <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">
+            <div>⏱️ Active Time: <strong class="live-timer" data-seconds="${install.active_seconds || 0}" data-online="${canLiveTick}">${activeTimeHMS}</strong></div>
             <div>▶️ Start: ${formatTimestamp(install.last_active_start)}</div>
             <div>⏸️ Stop: ${formatTimestamp(install.last_active_stop)}</div>
           </div>
         </div>
         <div style="display: flex; gap: var(--spacing-xs); align-items: center; flex-wrap: wrap;">
-          ${install.mellowtel_opted_in ? '<span class="badge badge-success">✓ Mellowtel</span>' : '<span class="badge badge-warning">No Mellowtel</span>'}
-          ${isActive ? '<span class="badge badge-active">🔥 Active</span>' : ''}
+          ${isUninstalled ? '<span class="badge" style="background: #ef4444; color: white;">🔴 Uninstalled</span>' :
+                    (install.mellowtel_opted_in ? '<span class="badge badge-success">✓ Mellowtel</span>' : '<span class="badge badge-warning">No Mellowtel</span>')}
+          
+          ${isUninstalled ? '' : (isOnline ? '<span class="badge badge-active">🟢 Online</span>' : '<span class="badge" style="background:#eee;color:#666">⚪ Offline</span>')}
+          
           <button class="btn btn-secondary view-install-btn" data-id="${install.install_id}" style="padding: 4px 8px; font-size: 0.8em; margin-left: 5px;">
              👁️ View
           </button>
         </div>
       </div>
     `;
-    }).join('');
+        }).join('');
+
+        // Start Live Ticking (if not already started)
+        if (!window.liveTickerInterval) {
+            window.liveTickerInterval = setInterval(() => {
+                const onlineTimers = document.querySelectorAll('.live-timer[data-online="true"]');
+                let addedSeconds = 0;
+
+                onlineTimers.forEach(timer => {
+                    let seconds = parseInt(timer.getAttribute('data-seconds') || '0');
+                    seconds++;
+                    timer.setAttribute('data-seconds', seconds);
+                    timer.textContent = formatDurationHMS(seconds);
+                    addedSeconds++;
+                });
+
+                // Update Total Time if any timers ticked
+                // (Note: This is an approximation. Ideally we sync active_seconds sum)
+                // But simply incrementing total by 1s if AT LEAST one is online isn't right.
+                // Actually, "Total Active Time" is sum of all seconds.
+                // If 2 users are online, we behave like a company: we pay for 2 man-hours per hour.
+                // So if 2 users tick, Total increments by 2s.
+
+                if (onlineTimers.length > 0) {
+                    const totalEl = document.getElementById('totalActiveTime');
+                    if (totalEl) {
+                        // We need to store total seconds in data attribute too
+                        let totalSec = parseInt(totalEl.getAttribute('data-seconds') || '0');
+                        totalSec += onlineTimers.length; // Add 1s for EACH online user
+                        totalEl.setAttribute('data-seconds', totalSec);
+                        totalEl.textContent = formatDurationHMS(totalSec);
+                    }
+                }
+
+            }, 1000);
+        }
+    } catch (err) {
+        console.error('Error rendering installations:', err);
+        if (installList) {
+            installList.innerHTML = `<div class="error-message" style="color:#ef4444; padding:20px; text-align:center;">
+                <strong>⚠️ Render Error:</strong> ${err.message}<br>
+                Please refresh the page.
+            </div>`;
+        }
+    }
 }
 
 // Connect to SSE for real-time updates
@@ -388,7 +519,7 @@ async function copyToClipboard(text, successMsg) {
     try {
         await navigator.clipboard.writeText(text);
         showSuccess(successMsg);
-        setTimeout(clearMessages, 3000);
+        setTimeout(clearMessages, 2000);
     } catch (err) {
         console.error('Copy failed:', err);
         showError('Failed to copy. Please copy manually.');
@@ -566,4 +697,11 @@ function formatDuration(seconds) {
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
     return `${h}h ${m}m ${s}s`;
+}
+
+function formatDurationHMS(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return [h, m, s].map(v => v.toString().padStart(2, '0')).join(':');
 }
